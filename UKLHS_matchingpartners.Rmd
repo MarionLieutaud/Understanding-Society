@@ -1,0 +1,61 @@
+---
+title: "UKLHS_matchingpartners"
+author: "Marion Lieutaud"
+date: "1/20/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+# Packages
+```{r, echo=FALSE}
+library(foreign)
+library (haven)
+library(tidyverse)
+library(questionr)
+```
+
+# Data
+```{r}
+rm(list=ls()) #clear working environment
+d <- read_dta("a_indresp_protect.dta") # (wave 1 individual-level protected data). 
+```
+I use protected special licence data, you probably use the non-protected data ("a_indresp.dta" for wave 1)
+
+
+# Wrangling
+```{r}
+d_cp <- subset(d, a_ppid > 0) # keep only individuals who state
+#that they have a coresident partner (ie ppid [partner number identifier] not equal 0)
+
+# 1 dataset for each partner
+d_ego <- d_cp # dataset for ego (partner 1)
+d_sp <- d_cp # dataset for ego's spouse/partner (partner 2)
+
+# rename variables for partner 2 so they appear with the prefix "sp_"
+names(d_sp) <- paste0("sp_", names(d_sp))
+names(d_sp)[names(d_sp)=="sp_pidp"] <- "a_ppid"
+names(d_sp)[names(d_sp)=="sp_a_ppid"] <- "pidp"
+d_sp$sp_ident <- 1 #to identify partner variables
+
+# merge datasets for partner 1 and partner 2
+dcp <- NA
+dcp <- merge(d_ego, d_sp, by = c("pidp", "a_ppid"), all.x = T) 
+# units (rows) = individuals with their partner data matched.
+
+#identifier for unmatched couples
+freq(dcp$sp_ident)
+```
+Identify those where partner data was missing - i.e. sp_ident = NA (n = 3921 at wave 1). We know they have a partner but we don't have data for the partner at that wave
+ 
+Each individual has a line. Each couple rherefore appears twice if both partners were respondents (as each individual partner has one line). The number of couples is thus half the number of lines of partnered individuals with fully matched partner data. 
+
+If you want to work at the level of couples rather than individuals, you simply need to keep only one rows for each couple rather than two.
+
+```{r}
+rm(d, d_cp, d_ego, d_sp) # clear out unnecessary data
+```
+
+

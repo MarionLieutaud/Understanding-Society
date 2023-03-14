@@ -1,0 +1,333 @@
+---
+title: "UKLHS_MigrantLives_Citizenship"
+author: "Marion Lieutaud"
+date: "14/03/2022"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE, 
+                      tidy.opts=list(width.cutoff=80),tidy=TRUE)
+```
+
+# Packages
+```{r}
+# packages
+library(questionr)
+library(expss)
+library(tidyverse)
+library(readstata13)
+library(foreign)
+library(sjlabelled)
+```
+
+# Functions
+```{r}
+NAtozero <- function(.x) {
+  ifelse(is.na(.x) == T, 0, .x)
+}
+
+myMin <- function(vec) {
+      ifelse(length(vec[!is.na(vec)]) == 0, NA_real_, min(vec, na.rm = TRUE))
+}
+myMax <- function(vec) {
+      ifelse(length(vec[!is.na(vec)]) == 0, NA_real_, max(vec, na.rm = TRUE))
+}
+
+wave_to_number <- function(x) {
+  dplyr::recode(x, 
+                `a` = 1,
+                `b` = 2,
+                `c` = 3,
+                `d` = 4,
+                `e` = 5,
+                `f` = 6,
+                `g` = 7,
+                `h` = 8,
+                `i` = 9,
+                `j` = 10,
+                `k` = 11)
+}
+```
+
+# Sample description
+I only look at UKLHS respondents: I excluded people who were in the BHPS, because the vast majority of them were never presented with the migration history questions. Foreign-born respondents recruited during BHPS would would only have been asked the migration history module at Wave 9 of Understanding Society, since:
+
+- questions on migration history were only asked at wave 1, wave 6 and wave 7, but:
+- BHPS was merged only at wave 2, and therefore BHPS migrant respondents were not asked the wave 1 questionnaire.
+- The migration history module at wave 6 was only asked of respondents recruited through the new Immigrant and Ethnic Minority Boost Sample.
+- It is only at wave 7 that all remaining foreign-born participants were asked questions about their migration history.
+
+In addition, it is important to mention that:
+
+- the wave 1 migration history module was only asked of migrants who were non-white.
+Since most of the migration history information we have comes from wave 1, this means that we have more information on non-white migrants than we do on white migrants.
+- the question on whether native-born respondents had lived abroad was only asked of EMBS respondents (non-white ethnic minority).
+
+
+# Citizenship data
+
+2 types of variables are combined: 
+- whether British citizen at time of interview
+- when acquired British citizenship 
+
+```{r importxwavedat}
+# start from stable characteristics
+xw <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
+mig <- subset(xw, xw$bornuk_dv == "not born in uk") 
+#mig <- subset(mig, mig$yr2uk4 > 0) # excluding missing values for year of migration to the UK
+rm(xw)
+```
+
+Sample size of non-uk-born respondents in UKLHS overall (using xwavedat) is just under 20,000 individuals (18,928)
+When excluding respondents with missing values for year of migration to Britain (n=1327), it yields a sample of 17601 individuals. 
+
+
+```{r selectvars}
+select_variables_citizenship_allwaves<- function(x){
+  select(x, c(
+    # All waves
+    pidp,
+    ends_with("ppid"),      # individual identifier
+    ends_with("hidp"),      # household identifier
+    ends_with("intdaty_dv"),# year of interview
+    ends_with("citzn1"),    # UK citizen?
+    ends_with("citzn2"),    # citizen of country of birth?
+    ends_with("citzn3"),    # citizen of another country?
+    
+    # Migration history modules (w6 and w9 only)
+    ends_with("citznwhen"), # whether asked and answered question on citizenship
+    ends_with("citznyear"), # year acquired uk citizenship
+    ends_with("czwhn_cawi"),# web question: when or year became UK citizen
+    ends_with("intendukc")  # intending on becoming UK citizen?
+  ))
+}   
+```
+
+
+```{r}
+# data files
+data_files <- list.files("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls") # specify path to data folder
+indresp_files <- grep("indresp.dta", data_files, value=TRUE) # identify all indresp data files wanted
+
+# import citizenship data
+for(i in 1:length(indresp_files)) {                              # Head of for-loop
+  assign(paste0("data_wave", i),                                 # Read and store data frames
+         read.dta13(paste0("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/",
+                           indresp_files[i])) %>%
+                              select_variables_citizenship_allwaves())
+}
+
+# merge wave-specific citizenship data with time-invariant data
+c <- NA
+c <- mig %>%
+  left_join(data_wave1, by = "pidp") %>%
+  left_join(data_wave2, by = "pidp") %>%
+  left_join(data_wave3, by = "pidp") %>%
+  left_join(data_wave4, by = "pidp") %>%
+  left_join(data_wave5, by = "pidp") %>%
+  left_join(data_wave6, by = "pidp") %>%
+  left_join(data_wave7, by = "pidp") %>%
+  left_join(data_wave8, by = "pidp") %>%
+  left_join(data_wave9, by = "pidp") %>%
+  left_join(data_wave10, by = "pidp") %>%
+  left_join(data_wave11, by = "pidp")
+
+# tidy out wave data files
+rm(data_wave1, data_wave2, data_wave3, data_wave4, data_wave5, data_wave6,
+   data_wave7, data_wave8, data_wave9, data_wave10, data_wave11)
+
+# data cleaning: all lowercase
+c <- c %>% mutate(across(c(where(is.character), where(is.factor)), tolower)) 
+```
+
+
+## UK/other citizen
+```{r}
+# Cleaning citzn_year
+#freq(c$f_citznyear > 0) # 801 responses at wave 6
+#freq(c$i_citznyear > 0) # 961 responses at wave 6
+#freq(c$f_citznyear > 0 & c$i_citznyear > 0 & c$f_citznyear == c$i_citznyear) # No cases where date provided at both wave 6 and wave 9
+c <- c %>%
+  mutate(citzn_year= ifelse(
+    f_citznyear > 0 & (i_citznyear < 0 | is.na(i_citznyear)), f_citznyear,
+    ifelse(
+      (f_citznyear < 0 | is.na(f_citznyear))  & i_citznyear > 0, i_citznyear,
+       ifelse(NA)))) 
+```
+Using _citznyear, We have a year of uk citizenship acquisition for 1762 migrants (combining w6 and w9)
+
+```{r}
+c %>% count(if_all(matches("citzn\\d{1}$"), is.na)) # count individuals who have only missing values for citizenship variables.
+```
+
+```{r}
+c <- c %>%
+  mutate_at(vars(matches('citzn\\d{1}')), 
+            ~dplyr::recode(., 
+                           "mentioned" = 1,
+                           "not mentioned" = 0)) 
+c <- c %>%
+  mutate_at(vars(matches('citzn\\d{1}')), 
+            .funs = list(dv = ~ifelse(. %in% c(1, 0), ., NA))) %>%
+  mutate(citzn_allNA = ifelse(if_all(matches("citzn\\d{1}_dv$"), is.na), TRUE, FALSE))
+names(c)
+freq(c$citzn_allNA)
+```
+4644 individuals have only missing data for British citizenship (citzn1)
+14284 have at least one non-missing citzn1 observation; and 4449 migrants who have only NAs for all citizenship variables (citzn1, citzn2 and citzn3) across all waves.
+
+For 2114 individuals out of the 4644, there are only NA (not recoded as missing, but NA from the start)
+that means they were never either interviewed or even a proxy. This includes BHPS respondents who didn't go on to participate in UKLHS, 
+and individuals who appeared (potentially briefly) in BHPS or UKLHS at some point as household members but were never interviewed or provided proxy information for.
+
+### Integrate year of citizenship acquisition using the citzn_year variable.
+for people who reported both 'other citizenship' and 'uk citizen' or 'uk+ citizen' (presumably it's only after).
+
+**Imputations**
+I imputed a year of citizenship acquisition when:
+- respondents did not retrospectively provide an exact date for when they acquired UK citizenship
+- *and* they said they did not have uk citizenship at one point
+- *and* they said they had uk citizenship at a later point
+
+In that case, I took the earliest interview year at which they said they had uk citizenship,
+added the last year they said they did not, divided that by two and then rounded it up, 
+so that the imputed year of citizenship acquisition is about half-way (conservatively leaning towards later)
+between the moment they declared having it, and the last time they were interviewed and said they didn't have it.
+
+```{r}
+c_long <- c %>%
+  select(pidp, citzn_year, ends_with("citzn1"), ends_with("citzn2"), ends_with("citzn3"), ends_with("intdaty_dv"))
+```
+
+```{r}
+# earliest wave that they say yes to uk citizenship
+c_long <- c %>%
+  select(pidp, citzn_year, ends_with("citzn1_dv"), ends_with("citzn2_dv"), ends_with("citzn3_dv"), ends_with("intdaty_dv")) %>%
+  pivot_longer(
+    cols = !c(pidp, citzn_year),
+    names_to = c("waves", ".value"),
+    names_pattern = "(^[a-z])_(.*)$"
+  ) %>%
+  mutate(waves_num = wave_to_number(waves)) # done!
+
+freq(c_long$citzn1_dv)
+```
+
+
+```{r}
+c_long <- c_long %>%
+  filter(!if_all(matches("citzn\\d{1}_dv"), is.na)) %>%
+  mutate(citzn4_dv = ifelse(citzn2_dv == 1 | citzn3_dv == 1, 1, 0), # any non-uk citizenship
+         citzn5_dv = ifelse(citzn1_dv == 0 | (is.na(citzn1_dv) & citzn4_dv == 1), 1, 0)) %>% # no uk citizenship
+  group_by(pidp) %>%
+  mutate(first_mention_ukcitzn = myMin(waves_num[citzn1_dv == 1]),
+         last_mention_ukcitzn = myMax(waves_num[citzn1_dv == 1]),
+         last_mention_notukcitzn = myMax(waves_num[citzn1_dv == 0]),
+         first_mention_ocitzn = myMin(waves_num[citzn4_dv == 1]),
+         last_mention_ocitzn = myMax(waves_num[citzn4_dv == 1]),
+         last_mention_notukcitzn_bfuk = myMax(waves_num[citzn1_dv == 0 & (waves_num < first_mention_ukcitzn)]),
+         citzn_year_dv = ifelse(is.na(citzn_year)==F, citzn_year, 
+                             (intdaty_dv[waves_num == first_mention_ukcitzn] + 
+                                intdaty_dv[waves_num == last_mention_notukcitzn_bfuk]) 
+                              / 2),
+         citzn_year_dv = ceiling(citzn_year_dv),
+         keep_wave1 = ifelse(waves_num == myMin(waves_num[!is.na(citzn_year_dv)]), TRUE, FALSE),
+         keep_wave2 = ifelse(is.na(keep_wave1) & waves_num == myMin(waves_num), TRUE, keep_wave1)) %>%
+  filter(keep_wave2 == TRUE) %>%
+  add_count() %>%
+  ungroup() %>%
+  select(c(pidp, 
+           citzn_year_dv, 
+           waves, 
+           keep_wave1,
+           n,
+           first_mention_ukcitzn, 
+           last_mention_ukcitzn, 
+           first_mention_ocitzn, 
+           last_mention_ocitzn)) 
+
+
+# merge with wide data
+cl <- c %>%
+  left_join(c_long, by = "pidp")
+
+# imputation flag
+cl <- cl %>%
+  mutate(citzn_year_dv_flag = ifelse(is.na(citzn_year)==T & is.na(citzn_year_dv)==F, "imputation", "no imputation"))
+
+#table(cl$citzn_year_dv_flag, cl$citzn_year_dv > 0)
+```
+In total, we have a year of citizenship acquisition for 2256 migrants in UKLHS, with 547 based on imputation.
+
+
+```{r}
+# checking for duplicated pidp
+cl %>%
+  select(-n) %>%
+  group_by(pidp) %>%
+  add_count() %>%
+  ungroup() %>%
+  count(n) # no duplicates
+```
+
+```{r}
+# time between first migration and citizenship (in years)
+cl <- cl %>%
+  mutate(mig2_ukcitzn = citzn_year_dv - yr2uk4)
+
+# age at citizenship
+cl <- cl %>%
+  mutate(agewhen_ukcitzn = ifelse(birthy > 0, citzn_year_dv - birthy, NA))
+```
+
+# Whether obtained uk citizenship
+Imputing uk citizenship for all migrants who arrived in the UK before the age of 16.
+The questionnaire design implies the assumption that all these people would have had UK citizenship,
+hence there was no need to even ask them about their citizenship.
+```{r}
+cl <- cl %>%
+  mutate(age2uk = ifelse((yr2uk4 > 1 & birthy > 1), yr2uk4 - birthy, NA), # 31 missing values for yr of birth
+         age2uk = ifelse(age2uk < 0, NA, age2uk)) %>%
+  mutate(got_uk_citzn1 = ifelse(if_any(matches("citzn1_dv"), ~.==1), TRUE,
+                                      ifelse(is.na(citzn_year_dv)==F, TRUE,
+                                             ifelse(age2uk < 16, TRUE))),
+         got_uk_citzn1 = ifelse(is.na(got_uk_citzn1) & 
+                                  (if_any(matches("citzn2_dv"), ~.==1) | if_any(matches("citzn3_dv"), ~.==1)), 
+                                                        FALSE, got_uk_citzn1),
+         got_uk_citzn = case_when(
+           got_uk_citzn1 == FALSE               ~ "no uk citizenship",
+           got_uk_citzn1 == TRUE & age2uk < 16  ~ "became uk citizen - child migrant",
+           got_uk_citzn1 == TRUE & age2uk >= 16 ~ "became uk citizen - adult migrant (16+)"
+         ))
+
+table(is.na(cl$citzn_year_dv) == F, cl$got_uk_citzn)
+```
+
+# Label and save data
+```{r}
+cl <- cl %>%
+  select(pidp,
+         got_uk_citzn,
+         citzn_year_dv,
+         citzn_year_dv_flag,
+         mig2_ukcitzn,
+         agewhen_ukcitzn)
+
+# assign variable labels
+cl <- set_label(cl, label = c("Personal identifier",
+                              "Whether acquired British citizenship", 
+                              "Year of acquisition of British citizenship (with imputations)", 
+                              "Imputation flags for citzn_year_dv",
+                              "Time (in years) between year of first migration to the UK and year of acquisition of British citizenship",
+                              "Age when acquired British citizenship")) 
+
+# write to csv
+write.csv(cl, "citizenship_UKLHS.csv", row.names = FALSE)
+
+# write to stata
+write.dta(cl, file = "citizenship_UKLHS.dta")
+```
+
+

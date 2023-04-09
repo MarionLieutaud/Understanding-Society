@@ -1,0 +1,112 @@
+---
+title: "Reshape_state_sequence_data"
+author: "Marion Lieutaud"
+date: "4/1/2023"
+output: html_document
+---
+
+This code provides an example of how to reshape wide data with dated events to successive states format suitable for sequence analysis.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE, 
+                      tidy.opts=list(width.cutoff=80),tidy=TRUE)
+```
+
+# Packages
+```{r}
+# packages
+library(questionr)
+library(expss)
+library(tidyverse)
+library(readstata13)
+library(foreign)
+library(sjlabelled)
+```
+
+# Example data: citizenship
+```{r}
+c <- read.dta("citizenship_UKLHS.dta")
+#p <- read.csv("mh_mighist_20:02:2023.csv")
+t <- read.csv("mig_hist_test.csv")
+
+e <- c %>%
+  left_join(t, by = "pidp")
+```
+
+
+# year-id data for time between first migration to the UK and citizenship acquisition
+variables: citzn_year_dv, yr2uk4, birthy
+```{r}
+# keep only participants for whom we have data on year or migration (origin time)
+e <- e %>%
+  filter(yr2uk4 > 0, birthy > 0)  
+  # we need at least 1 observation about citizenship in order to include them
+  # that factors in that if they migrated before age 16, they are assumed to have had British citizenship at age 18 (?)
+freq(e$birthy)
+
+dim(e)
+
+# we need a variable on whether they ever provided citizenship data
+# we need a variable for the first year they provided citizenship data
+# what the first citizenship status was
+# we need a variable for the last year they provided citizenship data
+# what the last citizenship status was
+```
+
+
+### minibase example
+Recommendation to design and test your script first with a small subset of your dataframe (here: 30 first rows with data of interest).
+```{r, eval=FALSE}
+sq1 <- e %>%
+  mutate(across(everything(), ~ifelse(.x == "NA", NA, .x))) %>% # tidy
+  filter(!(is.na(mention1_citzn) & is.na(citzn_year_dv))) %>% # exclude individuals with no information for citizenship
+  mutate(yr2uk = ifelse(yr2uk4 > 0, as.numeric(yr2uk4), NA), # tidy yr2uk
+         yrbirth = ifelse(birthy > 0, as.numeric(birthy), NA)) # tidy 
+seq_mini <- sq1[1:30,] # for some reason when done this way, tmini has an extra numbered column at the beginning. 
+seq_mini
+
+seq_mini %>%
+  summarise(mean_1 = mean(mention1y_citzn - yr2uk, na.rm=TRUE),
+            mean_2 = mean(mentionlasty_citzn - yr2uk, na.rm=TRUE),
+            mean_3 = mean(mentionlasty_citzn - mention1y_citzn, na.rm=TRUE),
+            median_3 = median(mentionlasty_citzn - mention1y_citzn, na.rm=TRUE))
+```
+On average, 24 years btw when people first migrated and first time they gave info on citzenship. Closer to 25 years on average for the last time they gave information. Less than 1 year on average between first time they gave citizenship info and last time) - many only gave info once (median = 0).
+
+
+```{r, eval=FALSE}
+ti <- NULL
+
+# loop 
+for(i in 0:20) {
+  
+  col <- case_when(
+    #seq_mini$yrbirth > (seq_mini$yr2uk + i) ~ NA,
+    seq_mini$yr2uk + i - seq_mini$yrbirth <= 16 ~ "children",
+    (seq_mini$yr2uk + i <= seq_mini$mentionlasty_citzn) &
+      str_detect(seq_mini$mentionlast_citzn, "uk") == FALSE ~ "not uk citizen",
+    seq_mini$yr2uk + i < seq_mini$citzn_year_dv ~ "not uk citizen",
+    seq_mini$yr2uk + i >= seq_mini$citzn_year_dv ~ "uk citizen",
+    (seq_mini$yr2uk + i >= seq_mini$mention1y_citzn) &
+      str_detect(seq_mini$mention1_citzn, "uk") ~ "uk citizen")
+  
+ti <- cbind(ti, col)
+
+}
+
+# add column names
+for(i in 0:21) {colnames(ti)[i] <- paste("mig", toString(i-1))}
+
+# format to tibble
+ti <- ti %>%
+  as.tibble()
+
+# have a look at your successive state variables
+ti
+
+# attach state columns to initial dataset with other variables
+tmi <- NULL
+tmi <- cbind(seq_mini, ti)
+```

@@ -1,0 +1,110 @@
+---
+title: "Reshape data to event history format"
+author: "Marion Lieutaud"
+date: "3/25/2023"
+output: html_document
+---
+
+This code provides an example of how to reshape wide data with dated events to event history dataset format.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE, 
+                      tidy.opts=list(width.cutoff=80),tidy=TRUE)
+```
+
+# Packages
+```{r}
+# packages
+library(questionr)
+library(expss)
+library(tidyverse)
+library(readstata13)
+library(foreign)
+library(sjlabelled)
+```
+
+# Functions
+```{r}
+myMin <- function(vec) {
+      ifelse(length(vec[!is.na(vec)]) == 0, NA_real_, min(vec, na.rm = TRUE))
+}
+myMax <- function(vec) {
+      ifelse(length(vec[!is.na(vec)]) == 0, NA_real_, max(vec, na.rm = TRUE))
+}
+```
+
+
+# Example: citizenship
+```{r}
+c <- read.dta("citizenship_UKLHS.dta")
+#p <- read.csv("mh_mighist_20:02:2023.csv")
+t <- read.csv("mig_hist_test.csv")
+
+e <- c %>%
+  left_join(t, by = "pidp")
+```
+
+# id-year data for time between first migration to the UK and citizenship acquisition
+```{r}
+# some tidying and wrangling first
+ev <- e %>%
+  mutate(across(everything(), ~ifelse(.x == "NA", NA, .x)), # tidy NAs
+         yr2uk = ifelse(yr2uk4 > 0, as.numeric(yr2uk4), NA), # tidy yr2uk
+         yrbirth = ifelse(birthy > 0, as.numeric(birthy), NA)) %>% # tidy yrbirth
+  filter(!(is.na(mention1_citzn) & is.na(citzn_year_dv)), # exclude people who never provided information for citizenship
+         !((yr2uk - yrbirth < 16)), # exclude people who were younger than 16 at the time of migration
+         ! citzn_year_dv < yr2uk) %>% # exclude people who already had uk citizenship before migrating to the UK
+  select(pidp, yrbirth, yr2uk, matches("citzn"))
+```
+
+Set up training set and prepare event dates
+```{r }
+# set up training set
+ev_mini <- ev[1:30,] 
+
+ev_mini <- ev_mini %>%
+  filter(!(got_uk_citzn == "became uk citizen - adult migrant (16+)" & is.na(citzn_year_dv)))
+# Remove respondents if we know they got UK citizenship but we don't know when they got uk citizenship
+# We can't use them for event history analysis if we don't know when they got uk citizenship
+```
+
+
+```{r }
+# Collapse all event dates into one variable
+ev_mini_long <- ev_mini %>%
+  select(pidp, got_uk_citzn, yrbirth, yr2uk, mention1y_citzn, mentionlasty_citzn, citzn_year_dv) %>%
+  pivot_longer(
+    cols = !c(pidp, got_uk_citzn),
+    names_to = "event", values_to = "date"
+  )
+```
+
+In this example, we are interested in the time between first migration to the UK and citizenship acquisition (if it happened).
+The sequence thus starts at time of migration to the UK (time origin, t = 0) and ends either with when respondents obtained UK uk citizenship (ev_occ = 1) or when they last answered questions on citizenship (in this case, ev_occ = 0, right-truncation: it is possible that they got uk citizenship afterwards but we do not have observations for that).
+```{r}
+# fill dataset between yr2uk and either 1/citzn_year_dv or 2/mentionlasty_citzn (if no uk citizenship)
+ev_mini_long <- ev_mini_long %>%
+  filter(event %in% c("yr2uk", "citzn_year_dv", "mentionlasty_citzn")) %>%
+  mutate(ev_occ = case_when(event == "yr2uk" ~ 0,
+                             event == "citzn_year_dv" ~ 1,
+                             event == "mentionlasty_citzn" & got_uk_citzn == "no uk citizenship" ~ 0)) %>%
+  filter(!(event == "mentionlasty_citzn" & got_uk_citzn == "became uk citizen - adult migrant (16+)"),
+         !(event == "citzn_year_dv" & got_uk_citzn == "no uk citizenship")) # removing some inconsistent responses
+# (in a couple of cases, respondents stated they did not have uk citizenship but also provided a year of citizenship acquisition (the same as year of 1st migration to the UK. Assumed to be a mixup and discarded in favour of answers to current citizenship)
+
+# new time variable with year of 1st migration to UK as time origin (t=0)
+evm <- ev_mini_long %>%
+  group_by(pidp) %>%
+  mutate(ev_time = date - date[event == "yr2uk"]) %>% # yr2uk = 0. Any x year after that = 0+x
+  complete(ev_time = seq(min(ev_time), max(ev_time), 1), fill = list(Value = 0)) %>%
+  fill(got_uk_citzn) %>%
+  mutate(ev_occ = ifelse(is.na(ev_occ), 0, ev_occ), 
+         date = ifelse(is.na(date), myMin(date) + ev_time, date)) %>% # populating with dates
+  ungroup() %>%
+  relocate(pidp, got_uk_citzn, event, date, ev_time, ev_occ)
+
+evm # ready for event history analysis
+```
+

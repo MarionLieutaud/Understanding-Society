@@ -1,0 +1,96 @@
+---
+title: "Merging multiple waves files"
+author: "Marion Lieutaud"
+date: "4/15/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE, 
+                      tidy.opts=list(width.cutoff=80),tidy=TRUE)
+```
+
+# Packages
+```{r}
+# packages
+library(tidyverse)
+library(readstata13)
+library(foreign)
+library(sjlabelled)
+```
+
+First, create a function that selects only the variables that you will be interested in (you probably do not want to merge all variables from all waves, that will make for a huge dataset, that most computers would struggle with, and which will include a lot of data you do not need).
+
+In this example I focus on variables related to individual citizenship. 
+Wave-specific variables include a wave-specific prefix ("a_" for wave 1, "b_" for wave 2, etc...). In order to extract the same variable across waves, you need to tell your code to ignore the prefix ("ends_with(...)").
+
+```{r selectvars}
+select_variables_citizenship_allwaves<- function(x){
+  select(x, c(
+    pidp,
+    ends_with("ppid"),      # individual identifier
+    ends_with("hidp"),      # household identifier
+    ends_with("intdaty_dv"),# year of interview
+    ends_with("citzn1"),    # UK citizen?
+    ends_with("citzn2"),    # citizen of country of birth?
+    ends_with("citzn3"),    # citizen of another country?
+    ends_with("citznwhen"), # whether asked and answered question on citizenship
+    ends_with("citznyear"), # year acquired uk citizenship
+    ends_with("intendukc")  # intending on becoming UK citizen?
+  ))
+}   
+```
+
+
+Then import your base dataset
+```{r importxwavedat}
+# start by importing from time-invariant dataset (or any base dataset you want to start from)
+# Can be xwavedat, or it can be the Migration & Life dataset. 
+xw <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
+```
+
+Then run a loop that will import all the wave-specific datafiles you are interested in, but will only import the variables you selected earlier.
+```{r}
+data_files <- list.files("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls") # specify path to data folder
+indresp_files <- grep("indresp.dta", data_files, value=TRUE) # identify all indresp data files wanted
+
+# import specific variables for all datafiles
+for(i in 1:length(indresp_files)) {                              # Head of for-loop
+  assign(paste0("data_wave", i),                                 # Read and store data frames
+         read.dta13(paste0("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/",
+                           indresp_files[i])) %>%
+                              select_variables_citizenship_allwaves())
+}
+
+# merge wave-specific data with time-invariant data
+c <- NA
+c <- xw %>%
+  left_join(data_wave1, by = "pidp") %>%
+  left_join(data_wave2, by = "pidp") %>%
+  left_join(data_wave3, by = "pidp") %>%
+  left_join(data_wave4, by = "pidp") %>%
+  left_join(data_wave5, by = "pidp") %>%
+  left_join(data_wave6, by = "pidp") %>%
+  left_join(data_wave7, by = "pidp") %>%
+  left_join(data_wave8, by = "pidp") %>%
+  left_join(data_wave9, by = "pidp") %>%
+  left_join(data_wave10, by = "pidp") %>%
+  left_join(data_wave11, by = "pidp")
+
+# tidy out wave data files
+rm(data_wave1, data_wave2, data_wave3, data_wave4, data_wave5, data_wave6,
+   data_wave7, data_wave8, data_wave9, data_wave10, data_wave11)
+```
+
+You will need to clean the data a bit as answers codes for the same variables often differ slightly from one wave to the next.
+```{r}
+# data cleaning: all lowercase
+c <- c %>% mutate(across(c(where(is.character), where(is.factor)), tolower))
+```
+
+Save the merged data
+```{r}
+foreign::write.dta(c, "c_uklhs_allwaves.dta")
+```

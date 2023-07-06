@@ -1,0 +1,454 @@
+---
+title: "Languages_nationalID_5-01-2023"
+author: "Marion Lieutaud"
+date: "2023-01-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE, 
+                      tidy.opts=list(width.cutoff=80),tidy=TRUE)
+```
+
+# Packages
+```{r}
+# packages
+library(questionr)
+library(expss)
+library(tidyverse)
+library(readstata13)
+library(haven)
+library(Hmisc) # for labels
+```
+
+# Functions
+## Generic functions
+```{r}
+# nifty functions to reorder factor levels (Jan Vanhove, https://janhove.github.io)
+source("https://raw.githubusercontent.com/janhove/janhove.github.io/master/RCode/sortLvls.R")
+
+`%!in%` <- Negate(`%in%`)
+
+NAtozero <- function(.x) {
+  ifelse(is.na(.x) == T, 0, .x)
+}
+
+myMin <- function(vec) {
+      ifelse(length(vec[!is.na(vec)]) == 0, NA_real_, min(vec, na.rm = TRUE))
+}
+myMax <- function(vec) {
+      ifelse(length(vec[!is.na(vec)]) == 0, NA_real_, max(vec, na.rm = TRUE))
+}
+
+
+# waves to number
+wave_to_number <- function(x) {
+  dplyr::recode(x, 
+                `a` = 1,
+                `b` = 2,
+                `c` = 3,
+                `d` = 4,
+                `e` = 5,
+                `f` = 6,
+                `g` = 7,
+                `h` = 8,
+                `i` = 9,
+                `j` = 10,
+                `k` = 11)
+}
+
+
+valid_answer_yesno <- function(x) {
+  x %in% c("yes", "no")
+}
+
+valid_answer_mentioned <- function(x) {
+  x %in% c("mentioned", "not mentioned")
+}
+```
+
+
+## Tailored functions
+```{r}
+selectvars_langID <- function(x) {
+  select(x, c(
+    pidp,
+    ends_with("intdaty_dv"), # year of interview
+    ends_with("englang"), # English = 1st language
+    ends_with("engread"), # difficulty reading English  
+    ends_with("engform"), # difficulty completing English forms
+    ends_with("engspk"),  # difficulty speaking English in daily interactions
+    ends_with("engtel"),  # difficulty speaking English on the phone
+    ends_with("readdif"), # degrees of difficulty reading English  
+    ends_with("formdif"), # degrees of difficulty completing forms in English
+    ends_with("spkdif"),  # degrees of difficulty speaking English 
+    ends_with("teldif"),  # degrees of difficulty speaking English on the phone
+    matches("natid")      # all questions on national identity
+  ))
+}
+```
+natid - what would you consider your national ID to be? (mentioned/not mentioned)
+natid1 - national ID = English
+
+# Data
+## English language skills + national identity pooled data
+```{r xwavedat}
+# start from stable characteristics
+xw <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
+
+#identify sample of foreign-born survey participants
+freq(xw$ukborn) # 18017 foreign-born respondents over the whole survey
+#note: 44645 (30% of individuals in xwavedat have NAs for ukborn. Asked only of EMB/IEMB?)
+freq(xw$bornuk_dv) # bornuk_dv yields slightly better results: 18928 foreign-born respondents 
+#(still almost 28% missing?)
+
+mig <- subset(xw, xw$bornuk_dv == "not born in uk") 
+rm(xw)
+```
+
+```{r crosswavemerge}
+data_files <- list.files("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls") # path to data folder
+indresp_files <- grep("indresp.dta", data_files, value=TRUE) # specific data files wanted
+
+# base migration history data
+for(i in 1:length(indresp_files)) {                              # Head of for-loop
+  assign(paste0("data_wave", i),                        # Read and store data frames
+         read.dta13(paste0("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/",
+                           indresp_files[i])) %>%
+                              selectvars_langID())
+}
+
+lang_id_test <- NA
+lang_id_test <- mig %>%
+  left_join(data_wave1, by = "pidp") %>%
+  left_join(data_wave2, by = "pidp") %>%
+  left_join(data_wave3, by = "pidp") %>%
+  left_join(data_wave4, by = "pidp") %>%
+  left_join(data_wave5, by = "pidp") %>%
+  left_join(data_wave6, by = "pidp") %>%
+  left_join(data_wave7, by = "pidp") %>%
+  left_join(data_wave8, by = "pidp") %>%
+  left_join(data_wave9, by = "pidp") %>%
+  left_join(data_wave10, by = "pidp") %>%
+  left_join(data_wave11, by = "pidp")
+
+rm(data_wave1, data_wave2, data_wave3, data_wave4, data_wave5, data_wave6,
+   data_wave7, data_wave8, data_wave9, data_wave10, data_wave11, mig)
+```
+
+## Initial variables selection
+```{r varsselection}
+dl <- lang_id_test %>%
+  selectvars_langID() 
+
+# count individuals who have only missing values for all language/national ID variables.
+dl %>% count(if_all(matches("^\\w_"), is.na))
+
+# clean data
+d <- dl %>%
+  mutate(across(c(where(is.character), where(is.factor)), tolower)) 
+
+names(d)
+```
+9744 migrant individuals participated in the survey for at least one of the waves at which English language questions were asked 
+16814 migrant individuals provided at least one answer for either language of National ID (2114 did not)
+
+# New variables
+## vars: English language skills
+```{r}
+d <- d %>% 
+  mutate(across(c(matches('^[a-z]_eng'), matches('dif$')), as.character)) %>%
+  mutate(across(matches('^[a-z]_eng'), ~dplyr::case_when(
+    .x == "1"  ~ "yes",
+    .x == "2"  ~ "no",
+    .x == "-8" ~ "inapplicable",
+    .x == "-7" ~ "proxy",
+    .x == "-2" ~ "refusal",
+    .x == "-1" ~ "don't know",
+    .x == "proxy respondent" ~ "proxy",
+    TRUE ~ .x))) %>%
+  mutate(across(matches('dif$'), ~dplyr::case_when(
+    .x == "1"  ~ "a little difficult",
+    .x == "2"  ~ "fairly difficult",
+    .x == "3"  ~ "very difficult",
+    .x == "4"  ~ "cannot speak english at all",
+    .x == "-8" ~ "inapplicable",
+    .x == "-7" ~ "proxy",
+    .x == "-2" ~ "refusal",
+    .x == "-1" ~ "don't know",
+    .x == "proxy respondent" ~ "proxy",
+    TRUE ~ .x)))
+
+valid_answer_yesno <- function(x) {
+  x %in% c("yes", "no")
+}
+
+d %>% count(if_all(matches('^[a-z]_eng'), is.na))
+d %>% count(if_any(matches('^[a-z]_eng'), valid_answer_yesno))
+
+d <- d %>%
+  mutate(eng_allNA = ifelse(if_any(matches('^[a-z]_eng'), valid_answer_yesno), FALSE, TRUE))
+
+d %>%
+  select(matches('^[a-z]_eng')) %>%
+  map(class)
+```
+15305 migrants gave at least one non-NA
+12630 migrants gave at least one valid answer (yes or no to questions on English language difficulties)
+6298 migrants never provided a valid answer and/or were never asked.
+```{r}
+d_long <- d %>%
+  select(pidp, matches("eng"), ends_with("dif"), ends_with("intdaty_dv")) %>%
+  pivot_longer(
+    cols = !c(pidp, eng_allNA),
+    names_to = c("waves", ".value"),
+    names_pattern = "(^[a-z])_(.*)$"
+  ) %>%
+  mutate(waves_num = wave_to_number(waves)) # done!
+
+head(d_long)
+```
+
+```{r}
+# How many times and when did migrants provide information on English language skills (if any)
+d_long <- d_long %>%
+  mutate(eng_na = ifelse(if_any(matches("eng"), valid_answer_yesno), FALSE, TRUE)) 
+
+d_long1 <- d_long %>%
+  filter(eng_na == FALSE) %>%
+  group_by(pidp) %>%
+  add_count() %>%
+  rename(mentionnb_eng = n) %>%
+  ungroup()
+
+d_long1 <- d_long1 %>%
+  group_by(pidp) %>%
+  mutate(mention1w_eng = sort(waves_num[if_any(matches("eng[a-z]"), valid_answer_yesno)])[1],  # 1st time
+         mention1y_eng = intdaty_dv[waves_num == mention1w_eng], 
+         mention2w_eng = sort(waves_num[if_any(matches("eng[a-z]"), valid_answer_yesno)])[2],  # 2nd time
+         mention2y_eng = intdaty_dv[waves_num == mention2w_eng], 
+         mention3w_eng = sort(waves_num[if_any(matches("eng[a-z]"), valid_answer_yesno)])[3],  # 3rd time
+         mention3y_eng = intdaty_dv[waves_num == mention3w_eng],
+         mentionlastw_eng = myMax(waves_num[if_any(matches("eng[a-z]"), valid_answer_yesno)]), # last time
+         mentionlasty_eng = intdaty_dv[waves_num == mentionlastw_eng]) %>%
+  ungroup() 
+
+
+# pivot_wider, attach first_mention to 
+# add variable for mention 1, 2 and 3
+
+d_long1 <- d_long1 %>%
+  group_by(pidp) %>%
+  mutate(mentionsrank_eng = dense_rank(waves_num)) %>%
+  ungroup()
+
+d_wide1 <- d_long1 %>%
+  select(pidp, matches("^eng[a-z]"), matches("dif$"), mentionsrank_eng) %>%
+  pivot_wider(
+    id_cols = "pidp", 
+    names_from = "mentionsrank_eng",
+    values_from = c("englang", "engread", "engform", "engspk", "engtel", "readdif", "formdif", "spkdif", "teldif"),
+    names_glue = "{.value}{mentionsrank_eng}"
+  )
+
+
+d_wide <- d_long1 %>%
+  filter(mentionsrank_eng == 1) %>%
+  select(-c(matches("^eng"), matches("dif$"), waves, waves_num, intdaty_dv, mentionsrank_eng)) %>%
+  left_join(d_wide1, by = "pidp")
+# done
+```
+
+The maximum number of times that respondents answered the questions on English language is three times.
+275 people responded both 'yes' and 'no' at different waves.
+
+```{r}
+freq(valid_answer_yesno(d_wide$englang1) & valid_answer_yesno(d_wide$englang2) & (d_wide$englang1 != d_wide$englang2))
+freq(valid_answer_yesno(d_wide$englang3) & valid_answer_yesno(d_wide$englang2) & (d_wide$englang3 != d_wide$englang2))
+```
+
+For pooled variable on whether respondents' first language is English I recommend using the first response they provided (englang1). 
+
+## vars: national identity
+```{r}
+d <- d %>% 
+  mutate(across(matches('natid'), as.character)) %>%
+  mutate(across(matches('natid'), ~dplyr::case_when(
+    .x == "1"  ~ "mentioned",
+    .x == "0"  ~ "not mentioned",
+    .x == "-8" ~ "inapplicable",
+    .x == "-7" ~ "proxy",
+    .x == "-2" ~ "refusal",
+    .x == "-1" ~ "don't know",
+    .x == "proxy respondent" ~ "proxy",
+    TRUE ~ .x))) 
+
+d <- d %>%
+  mutate(natid_allNA = ifelse(if_any(matches('^[a-z]_natid'), valid_answer_mentioned), FALSE, TRUE))
+
+```
+2114 migrant individuals have only NAs throughout
+3768 migrant individuals have no valid answers throughout (mentioned/not mentioned)
+15160 migrant individuals answered the question on national identity at least once
+
+```{r}
+d_long <- d %>%
+  select(pidp, matches("natid"), ends_with("intdaty_dv")) %>%
+  pivot_longer(
+    cols = !c(pidp, natid_allNA),
+    names_to = c("waves", ".value"),
+    names_pattern = "(^[a-z])_(.*)$"
+  ) %>%
+  mutate(waves_num = wave_to_number(waves)) 
+```
+
+```{r}
+# How many times and when did migrants provide information on national identity (if any)
+d_long <- d_long %>%
+  mutate(natid_na = ifelse(if_any(matches("natid"), valid_answer_mentioned), FALSE, TRUE)) 
+
+d_long1 <- d_long %>%
+  filter(natid_na == FALSE) %>%
+  group_by(pidp) %>%
+  add_count() %>%
+  rename(mentionnb_natid = n) %>%
+  ungroup()
+
+```
+The vast majority of migrant participants gave only one valid answer for national identity (most were only asked at one wave and then not again).
+15122 gave one answer. 76 answered the question at 2 waves. So the maximum number of data points (in terms of number of times this question was answered) is 2.
+
+```{r}
+# identify first observations and second observations
+d_long1 <- d_long1 %>%
+  group_by(pidp) %>%
+  mutate(mention1w_natid = sort(waves_num[if_any(matches("natid[a-z]"), valid_answer_mentioned)])[1],  # 1st time
+         mention1y_natid = intdaty_dv[waves_num == mention1w_natid], 
+         mention2w_natid = sort(waves_num[if_any(matches("natid[a-z]"), valid_answer_mentioned)])[2],  # 2nd time
+         mention2y_natid = intdaty_dv[waves_num == mention2w_natid],) %>%
+  ungroup()
+```
+
+
+```{r}
+# how many national ID do they tick at each wave
+mentioned_to_numeric <- function(x) {
+  ifelse(x == "mentioned", 1L,
+         ifelse(x == "not mentioned", 0L, as.numeric(x)))
+} 
+
+d_long1 <- d_long1 %>%
+  mutate(across(matches("natid\\d"), mentioned_to_numeric, .names = "numeric_{col}")) %>%
+  rowwise() %>%
+  mutate(natidnb = sum(c_across(numeric_natid1 : numeric_natid97))) %>%
+  ungroup() %>%
+  select(-c(matches("numeric_natid")))
+```
+90% of migrants only give one national identity at any given wave. 
+9.4% give 2. The remaining give 3 or (very rarely) 4
+
+```{r}
+d_long1 <- d_long1 %>%
+  group_by(pidp) %>%
+  mutate(mentionsrank_natid = dense_rank(waves_num)) %>%
+  ungroup()
+
+d_wide1 <- d_long1 %>%
+  select(pidp, matches("^natid\\d"), natidnb, mentionsrank_natid) %>%
+  pivot_wider(
+    id_cols = "pidp", 
+    names_from = "mentionsrank_natid",
+    values_from = c(natid1: natid97, natidnb),
+    names_glue = "{.value}_{mentionsrank_natid}"
+  )
+
+
+d_wide2 <- d_long1 %>%
+  filter(mentionsrank_natid == 1) %>%
+  select(-c(matches("^natid"), waves, waves_num, intdaty_dv, mentionsrank_natid)) %>%
+  left_join(d_wide1, by = "pidp")
+
+rm(d_long1, d_long)
+```
+Note: special licence needed for specific other national identities
+
+# Labelling
+```{r labelling}
+d_final <- d_wide %>%
+  full_join(d_wide2, by = "pidp")
+
+d_labels <- c(pidp = "Personal identifier",
+              mentionnb_eng = "How many data points for English language skills",
+              mention1w_eng = "Wave number for 1st data point on English language skills",
+              mention1y_eng = "Year of 1st data point on English language skills",
+              mention2w_eng = "Wave number for 2nd data point on English language skills",
+              mention2y_eng = "Year of 2nd data point on English language skills",
+              mention3w_eng = "Wave number for 3rd data point on English language skills",
+              mention3y_eng = "Year of 3rd data point on English language skills",   
+              mentionlastw_eng = "Wave number for last data point on English language skills",
+              mentionlasty_eng = "Year for last data point on language skills",
+              englang1 = "Is English your first language (1st data point)",
+              englang2 = "Is English your first language (2nd data point)",
+              englang3 = "Is English your first language (3rd data point)",
+              engread1 = "English difficulty dummy: reading (1st data point)",
+              engread2 = "English difficulty dummy: reading (2nd data point)",
+              engread3 = "English difficulty dummy: reading (3rd data point)",
+              engform1 = "English difficulty dummy: filling forms (1st data point)",
+              engform2 = "English difficulty dummy: filling forms (2nd data point)",
+              engform3 = "English difficulty dummy: filling forms (2nd data point)",
+              engspk1 = "English difficulty dummy: speaking (1st data point)",
+              engspk2 = "English difficulty dummy: speaking (2nd data point)",
+              engspk3 = "English difficulty dummy: speaking (3rd data point)",
+              engtel1 = "English difficulty dummy: phone (1st data point)",
+              engtel2 = "English difficulty dummy: phone (2nd data point)",
+              engtel3 = "English difficulty dummy: phone (3rd data point)",
+              readdif1 = "English degree of difficulty: reading (1st data point)", 
+              readdif2 = "English degree of difficulty: reading (2nd data point)",
+              readdif3 = "English degree of difficulty: reading (3rd data point)",
+              formdif1 = "English degree of difficulty: filling forms (1st data point)",
+              formdif2 = "English degree of difficulty: filling forms (2nd data point)",
+              formdif3 = "English degree of difficulty: filling forms (3rd data point)",     
+              spkdif1 = "English degree of difficulty: speaking (1st data point)",
+              spkdif2 = "English degree of difficulty: speaking (2nd data point)",
+              spkdif3 = "English degree of difficulty: speaking (3rd data point)",
+              teldif1 = "English degree of difficulty: phone (1st data point)",         
+              teldif2 = "English degree of difficulty: phone (2nd data point)",
+              teldif3 = "English degree of difficulty: phone (3rd data point)",
+              mentionnb_natid = "How many data points for national identity", 
+              mention1w_natid = "Wave number for 1st data point on national identity",
+              mention1y_natid = "Year of 1st data point on national identity", 
+              mention2w_natid = "Wave number for 2nd data point on national identity",
+              mention2y_natid = "Year of 2nd data point on national identity",
+              natid1_1 = "national identity (1st data point): British",
+              natid2_1 = "national identity (1st data point): Welsh ",
+              natid3_1 = "national identity (1st data point): Scottish ",
+              natid4_1 = "national identity (1st data point): Northern Irish ",
+              natid5_1 = "national identity (1st data point): British ",
+              natid6_1 = "national identity (1st data point): Irish ",
+              natid97_1 = "national identity (1st data point): Other ",
+              natid1_2 = "national identity (2nd data point): British ",
+              natid2_2 = "national identity (2nd data point): Welsh ",
+              natid3_2 = "national identity (2nd data point): Scottish ",
+              natid4_2 = "national identity (2nd data point): Northern Irish ",
+              natid5_2 = "national identity (2nd data point): British ",
+              natid6_2 = "national identity (2nd data point): Irish ",
+              natid97_2 = "national identity (2nd data point): Other ",
+              natidnb_1 = "number of national identities mentioned (1st data point)",
+              natidnb_2 = "number of national identities mentioned (2nd data point)")   
+
+label(d_final) <- as.list(d_labels[match(names(d_final), 
+                                         names(d_labels))]) 
+
+View(d_final)
+rm(d_wide, d_wide1, d_wide2)
+```
+
+# Write to stata
+```{r writedta}
+write_dta(d_final,
+          path = "lang_natID.dta",
+          label = attr(data, "label"))
+```
+

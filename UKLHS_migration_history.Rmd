@@ -1,0 +1,745 @@
+---
+title: "Migration_history_modules_1-12-2022"
+author: "Marion Lieutaud"
+date: "12/1/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE, 
+                      tidy.opts=list(width.cutoff=80),tidy=TRUE)
+```
+
+# Packages
+```{r}
+# packages
+library(questionr)
+library(expss)
+library(tidyverse)
+library(haven)
+library(Hmisc)
+library(campfin) # for flag_dupes fn
+```
+
+# Functions
+
+## Generic functions
+```{r}
+`%!in%` <- Negate(`%in%`)
+
+NAtozero <- function(.x) {
+  ifelse(is.na(.x) == T, 0, .x)
+}
+
+myMin <- function(vec) {
+      ifelse(length(vec[!is.na(vec)]) == 0, NA_real_, min(vec, na.rm = TRUE))
+}
+myMax <- function(vec) {
+      ifelse(length(vec[!is.na(vec)]) == 0, NA_real_, max(vec, na.rm = TRUE))
+}
+
+# nifty functions to reorder factor levels (Jan Vanhove, https://janhove.github.io)
+source("https://raw.githubusercontent.com/janhove/janhove.github.io/master/RCode/sortLvls.R")
+```
+
+
+## Tailored function
+    ```{r}
+# Functions
+# recode valid answers to 1 and missing/nonapplicable to 0
+validanswers <- function(.x) {
+  if (is.numeric(.x) == F) {
+    ifelse((is.na(.x) == F & tolower(.x) %!in% c("only available for iemb", "not available for iemb","inapplicable", "missing", "proxy", "refusal", "refused", "don't know")) |
+           (is.na(.x) == F & str_detect(tolower(.x), "^-\\d*") == FALSE), 1, 0)
+  } else {
+    ifelse(is.na(.x) == F & .x > 0, 1, 0)
+  }
+}
+    
+# recode valid answers to 1 and missing/nonapplicable to 0
+# for character variables only (faster function)
+validanswers_character <- function(.x) {
+    case_when(
+      is.na(.x) == T ~ 0,
+      .x %in% c("only available for iemb", 
+                "not available for iemb",
+                "inapplicable", 
+                "missing", 
+                "proxy", 
+                "refusal", 
+                "refused", 
+                "don't know") ~ 0,
+      str_detect(.x, "^-\\d+") ~ 0,
+      TRUE ~ 1)
+}
+
+# count valid answers
+count_validanswers <- function(.x) {
+  if (is.numeric(.x) == F) {
+    freq(is.na(.x) == F & tolower(.x) %!in% c("only available for iemb", "not available for iemb","inapplicable", "missing", "proxy", "refusal", "refused", "don't know"))[2,1]
+  } else {
+    freq(is.na(.x) == F & .x > 0)[2,1]
+  }
+}
+
+## waves identifier to number
+wave_to_number <- function(x) {
+  dplyr::recode(x, 
+                `a` = 1,
+                `b` = 2,
+                `c` = 3,
+                `d` = 4,
+                `e` = 5,
+                `f` = 6,
+                `g` = 7,
+                `h` = 8,
+                `i` = 9,
+                `j` = 10,
+                `k` = 11)
+}
+```
+
+
+# Migration history pooled data
+Pool all variables from migration history modules, included at waves *1, 6 and 7*.
+NB: at wave 1, only asked of *non-white* respondents (EM boost + non-white background + general population comparison sample)
+Expanded migration history module at *waves 6 and 9*
+
+# Initial variables selection
+```{r}
+selectvars_migration_history<- function(x){
+  select(x, c(
+    # xwavedat data
+    pidp,
+    plbornc,
+    yr2uk4,
+    birthy,
+    sex,
+    sex_dv,
+    # wave-specific data
+    ends_with("intdaty_dv"),
+    
+    # Migration History original module: Waves (1), 6, 7
+    ends_with("hidp"),
+    ends_with("_mabroad"),
+    ends_with("_mnabroad"),
+    matches("_mabroadc_all"),     # 1-5th country lived abroad 
+    ends_with("_mindirect"),      # moved directly to UK from country of birth?
+    ends_with("_mnotherc"),       # number of countries lived before moving to UK
+    matches("_mindirectc"),       # 1-5th country lived in before moving to UK
+    matches("_mindirectc_all"),   # 1-5th country lived in before moving to UK [special licence]
+    ends_with("_mreturned"),      # ever returned to country of birth for 1+ year
+    ends_with("_mlived"),         # lived in countries other than UK since arrival
+    matches("_mlivedc_all"),      # 1-5th country lived abroad since moving to UK
+    ends_with("_moveage"),        # age respondent moved to UK
+    
+    # Migration history expanded modules: Waves 6 and 9
+    ends_with("dvage2uk"),        # age to uk (calculated)
+    ends_with("dv2uk16"),         # whether 16+ yo or not when arrived first to UK
+    ends_with("j1ukjob"),         # first job in the UK?
+    ends_with("j1cojob"),         # country of first job
+    ends_with("j1joboth"),        # last job before moving to UK          (not extracted)
+    ends_with("j1soc00uk"),       # first job in UK                       (not extracted)
+    ends_with("indeflv"),         # indefinite leave to remain in UK?
+    ends_with("intendukc"),       # intending on becoming UK citizen?
+    ends_with("mintent"),         # current migration intentions?         (not extracted)
+    ends_with("mintwhen")         # when expect to migrate?               (not extracted)
+  ))
+}   
+```
+
+# Data
+```{r, eval=FALSE}
+# start from stable characteristics
+xw <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
+
+#identify sample of foreign-born survey participants
+freq(xw$ukborn) # 18017 foreign-born respondents over the whole survey
+#note: 44645 (30% of individuals in xwavedat have NAs for ukborn. Asked only of EMB/IEMB?)
+freq(xw$bornuk_dv) # bornuk_dv yields slightly better results: 18928 foreign-born respondents 
+#(still almost 28% missing?)
+
+mig <- subset(xw, xw$bornuk_dv == "not born in uk") # not born in the UK 
+#mig <- subset(mig, mig$yr2uk4 > 0) # excluding missing values
+rm(xw)
+```
+wave 6 and 7
+```{r, eval = FALSE}
+wave6 <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/f_indresp.dta")
+wave7 <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/g_indresp.dta")
+wave9 <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/i_indresp.dta")
+
+migw6w7w9 <- mig %>%
+  left_join(wave6, by = "pidp") %>%
+  left_join(wave7, by = "pidp") %>%
+  left_join(wave9, by = "pidp") %>%
+  selectvars_migration_history() %>%
+  mutate(across(c(where(is.character), where(is.factor)), tolower)) 
+
+rm(mig, wave6, wave7, wave9, xw)
+```
+
+Sample size of non-uk-born respondents in UKLHS overall (using xwavedat) is just under 20,000 individuals (18,928)
+When excluding respondents with missing values for year of migration to Britain (n=1327), we have a total sample of 17601 individuals. 
+
+
+```{r, eval=FALSE}
+data_files <- list.files("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls") # path to data folder
+indresp_files <- grep("indresp.dta", data_files, value=TRUE) # specific data files wanted
+
+# base migration history data
+for(i in 1:length(indresp_files)) {                              # Head of for-loop
+  assign(paste0("data_wave", i),                        # Read and store data frames
+         readstata13::read.dta13(paste0("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/",
+                                indresp_files[i])) %>%
+           selectvars_migration_history())
+}
+
+mig_hist <- NA
+mig_hist <- mig %>%
+  left_join(data_wave1, by = "pidp") %>%
+  left_join(data_wave2, by = "pidp") %>%
+  left_join(data_wave3, by = "pidp") %>%
+  left_join(data_wave4, by = "pidp") %>%
+  left_join(data_wave5, by = "pidp") %>%
+  left_join(data_wave6, by = "pidp") %>%
+  left_join(data_wave7, by = "pidp") %>%
+  left_join(data_wave8, by = "pidp") %>%
+  left_join(data_wave9, by = "pidp") %>%
+  left_join(data_wave10, by = "pidp") %>%
+  left_join(data_wave11, by = "pidp")
+
+rm(data_wave1, data_wave2, data_wave3, data_wave4, data_wave5, data_wave6,
+   data_wave7, data_wave8, data_wave9, data_wave10, data_wave11, mig)
+
+#write.csv(mig_hist, "mig_hist_test.csv", sep=";", row.names = FALSE) if need to save here to avoid rerunning extraction everytime
+
+#mig_hist <- read.csv("mig_hist_test.csv")
+
+mh <- mig_hist %>%
+  selectvars_migration_history() %>%
+  filter(!if_all(matches("^a_|^f_|^g_"), is.na)) %>%
+  mutate(across(c(where(is.character), where(is.factor)), tolower)) # all to lower
+```
+*14932* migrants participated in any or all of wave 1, 6 and 7 (ie when the migration history modules were asked)
+*3996* migrants did not participate in any of these three waves, and therefore we do not have data on their migration history. Let's remove these for the moment
+
+# New variables
+For variables on time-invariant data, I simply pool information provided at different waves by different respondents.
+For variables on time-varying data (e.g. current migration intentions, which might well change over time), I create variables for each data points, with the wave and date associated with each successive answer (in case there are several valid answer provided at different waves). 
+
+## var: direct migration
+```{r}
+# pooled direct/indirect migration
+mh <- mh %>%
+  mutate(mindirect = case_when(
+    if_any(ends_with("_mindirect"),
+           ~. == "direct from birth country") ~ "direct",
+    if_any(ends_with("_mindirect"),
+           ~. == "from other country")        ~ "indirect",
+    TRUE ~ NA))
+```
+
+## var: extra countries lived bf uk 
+```{r}
+# number countries lived in bf UK
+mh <- mh %>%
+  rowwise() %>%
+  mutate(nbex_countries_bfuk = myMax(c_across(ends_with("_mnotherc")))) %>%
+  mutate(nbex_countries_bfuk = ifelse(nbex_countries_bfuk < 0, NA, nbex_countries_bfuk))
+         
+table(mh$mindirect, is.na(mh$nbex_countries_bfuk))
+```
+There are 15 migrants who stated that they did not come directly to the UK from their country of birth, but we don't have the number of countries they lived in in-between. We do have it for 1273 migrants who migrated indirectly.  
+
+## var: which countries [edit this at the end]
+```{r mindirectc}
+# waves 6 and 7
+migw6w7w9 <- migw6w7w9 %>%
+  mutate(mindirectc1 = case_when(
+    validanswers(f_mindirectc1) == 1 ~ f_mindirectc1,
+    validanswers(g_mindirectc1) == 1 ~ g_mindirectc1,
+    TRUE ~NA),
+    mindirectc2 = case_when(
+    validanswers(f_mindirectc2) == 1 ~ f_mindirectc2,
+    validanswers(g_mindirectc2) == 1 ~ g_mindirectc2,
+    TRUE ~NA),
+    mindirectc3 = case_when(
+    validanswers(f_mindirectc3) == 1 ~ f_mindirectc3,
+    validanswers(g_mindirectc3) == 1 ~ g_mindirectc3,
+    TRUE ~NA),
+    mindirectc4 = case_when(
+    validanswers(f_mindirectc4) == 1 ~ f_mindirectc4,
+    validanswers(g_mindirectc4) == 1 ~ g_mindirectc4,
+    TRUE ~NA),
+    mindirectc5 = case_when(
+    validanswers(f_mindirectc5) == 1 ~ f_mindirectc5,
+    validanswers(g_mindirectc5) == 1 ~ g_mindirectc5,
+    TRUE ~NA))
+
+mh2 <- migw6w7w9 %>%
+  select(pidp, matches("intdaty_dv"), matches("^mindirect\\d{1}"))
+
+mh <- mh %>%
+  left_join(mh2, by = "pidp"
+  )
+# bind ^mindirectc\\d{1} to mh
+```
+
+## var: which countries [special licence]
+```{r mindirectc_all, eval=FALSE}
+migw6w7w9 <- migw6w7w9 %>%
+  mutate(mindirectc_all1 = case_when(
+    validanswers(f_mindirectc_all1) == 1 ~ f_mindirectc_all1,
+    validanswers(g_mindirectc_all1) == 1 ~ g_mindirectc_all1,
+    TRUE ~NA),
+    mindirectc_all2 = case_when(
+    validanswers(f_mindirectc_all2) == 1 ~ f_mindirectc_all2,
+    validanswers(g_mindirectc_all2) == 1 ~ g_mindirectc_all2,
+    TRUE ~NA),
+    mindirectc_all3 = case_when(
+    validanswers(f_mindirectc_all3) == 1 ~ f_mindirectc_all3,
+    validanswers(g_mindirectc_all3) == 1 ~ g_mindirectc_all3,
+    TRUE ~NA),
+    mindirectc_all4 = case_when(
+    validanswers(f_mindirectc_all4) == 1 ~ f_mindirectc_all4,
+    validanswers(g_mindirectc_all4) == 1 ~ g_mindirectc_all4,
+    TRUE ~NA),
+    mindirectc_all5 = case_when(
+    validanswers(f_mindirectc_all5) == 1 ~ f_mindirectc_all5,
+    validanswers(g_mindirectc_all5) == 1 ~ g_mindirectc_all5,
+    TRUE ~NA))
+
+# bind ^mindirectc\\d{1} to mh
+```
+## var: ever returned to cob
+for a year or longer
+```{r}
+mh <- mh %>%
+  mutate(
+    mreturned = dplyr::case_when(
+      if_any(ends_with("_mreturned"), ~. == "no")  ~ "no",
+      if_any(ends_with("_mreturned"), ~. == "yes") ~ "yes",
+      TRUE ~ NA
+      )) 
+
+mh %>% count(mreturned)
+```
+869 migrant respondents had returned to their country of birth for at least a year since moving to the UK
+9004 had not.
+
+## var: ever lived abroad since
+```{r}
+mh <- mh %>%
+  mutate(
+    mlived = dplyr::case_when(
+      if_any(ends_with("_mlived"), ~. == "no")  ~ "no",
+      if_any(ends_with("_mlived"), ~. == "yes") ~ "yes",
+      TRUE ~ NA
+      )) 
+
+mh %>% count(mlived)
+```
+
+## var: age moved to uk
+moveage (only at wave 1)
+dvage2uk (wave 6, 7 and 9)
+dv2uk16 (wave 6, 7 and 9) arrival in the UK 16 or older
+
+```{r}
+mh <- mh %>%
+  rowwise() %>%
+  mutate(age2uk = myMax(c_across(c(ends_with("_moveage"), ends_with("dvage2uk"))))) %>%
+  mutate(age2uk = case_when(
+    age2uk < 0 ~ NA,
+    TRUE ~ age2uk
+  ))
+
+summary(mh$age2uk)
+```
+4671 missing for age at migration to the UK.
+
+## var: country of 1st job
+```{r}
+# j1ukjob: was 1st job in UK
+mh <- mh %>%
+  mutate(
+    j1ukjob = dplyr::case_when(
+      if_any(ends_with("_j1ukjob"), ~. %in% c(1, "yes"))  ~ "yes",
+      if_any(ends_with("_j1ukjob"), ~. %in% c(2, "no")) ~ "no",
+      TRUE ~ NA
+    ))
+freq(mh$j1ukjob)
+```
+People were asked if their first job was in the UK if they were in the IEMB (at wave 6) and they migrated age 16+ and their had a first job already and they weren't born in the UK.
+
+```{r}
+# j1cojob: if not in UK, where was 1st job
+mh <- mh %>%
+  mutate(
+    j1cojob = dplyr::case_when(
+      if_any(ends_with("_j1cojob"), ~. %in% c(1, "your country of birth"))  ~ "country of birth",
+      if_any(ends_with("_j1cojob"), ~. %in% c(2, "another country?"))  ~ "another country",
+      TRUE ~ NA
+    ))
+
+freq(mh$j1cojob)
+```
+
+## var: migration intention
+```{r}
+# Migration intentions: waves 6, 7, 9
+
+# Count number of valid answers per respondent
+mh <- mh %>%
+  mutate(across(matches("_mintent$"), ~as.character(.))) %>%
+  rowwise() %>%
+  mutate(mintent_nb = sum(c(validanswers_character(f_mintent), 
+                            validanswers_character(g_mintent), 
+                            validanswers_character(i_mintent)))) %>%
+  ungroup()
+
+# pivot to long format
+mh_long <- mh %>%
+  select(pidp, matches("mintent"), ends_with("intdaty_dv")) %>%
+  mutate(across(matches("_mintent"), ~as.character(.x))) %>%
+  filter(if_any(matches("_mintent"), ~validanswers_character(.)==1)) %>%
+  pivot_longer(
+    cols = !c(pidp),
+    names_to = c("waves", ".value"),
+    names_pattern = "(^[a-z])_(.*)$"
+  ) %>%
+  mutate(waves_num = wave_to_number(waves)) %>%
+  filter(!is.na(mintent))
+
+# harmonise coding
+mh_long <- mh_long %>%
+  mutate(mintent = case_when(
+    mintent %in% c("1", 
+                   "i expect to stay in the uk to live") 
+    ~ "expect to stay in the uk to live",
+    mintent %in% c("2",
+                   "i expect to move between uk and country on birth on a regular basis") 
+    ~ "expect to move between uk and country of birth regularly",
+    mintent %in% c("3", 
+                   "i live here now but i expect to return to country of birth to live there in t",
+                   "i live here now but i expect to return to country of birth to live there in the future") 
+    ~ "live here now but expect to return to country of birth in the future",
+    mintent %in% c("4",
+                   "i live here now but i expect to live in another country in the future") 
+    ~ "live her now but expect to live in another country in the future",
+    TRUE ~ NA
+  ))
+
+# new variables
+mh_long <- mh_long %>%
+  filter(!is.na(mintent)) %>%
+  group_by(pidp) %>%
+  mutate(mentionsrank_mintent = dense_rank(waves_num),
+         mintent_nb = myMax(mentionsrank_mintent)) %>%
+  ungroup()
+
+# pivot to wide format
+mh_wide_mintent <- mh_long %>%
+  select(pidp, mintent, mentionsrank_mintent, waves_num, intdaty_dv, mintent_nb) %>%
+  rename(w_mintent = waves_num,
+         y_mintent = intdaty_dv,
+         `_mintent` = mintent) %>%
+  pivot_wider(
+    id_cols = c("pidp", "mintent_nb"), 
+    names_from = "mentionsrank_mintent",
+    values_from = c("_mintent","w_mintent","y_mintent"),
+    names_glue = "mention{mentionsrank_mintent}{.value}"
+  )
+
+# merge all
+mh <- mh %>%
+  left_join(mh_wide_mintent, by = "pidp") 
+
+rm(mh_long, mh_wide_mintent)
+```
+
+```{r}
+# When expect to migrate, if intends to migrate: waves 6,7,9
+mh %>%
+  select(matches('_mintwhen')) %>%
+  purrr::map(freq)
+
+# pivot to long format
+mh_long <- mh %>%
+  select(pidp, matches("_mintwhen"), matches("intdaty_dv")) %>%
+  mutate(across(matches("_mintwhen"), ~as.character(.x))) %>%
+  filter(if_any(matches("_mintwhen"), ~validanswers_character(.)==1)) %>%
+  distinct(.keep_all = TRUE) %>% 
+  pivot_longer(
+    cols = !c(pidp),
+    names_to = c("waves", ".value"),
+    names_pattern = "(^[a-z])_(.*)$"
+  ) %>%
+  mutate(waves_num = wave_to_number(waves)) 
+
+# harmonise coding
+mh_long <- mh_long %>%
+  mutate(mintwhen = case_when(
+    mintwhen %in% c("1", 
+                   "in the next 12 months") 
+    ~ "in the next 12 months",
+    mintwhen %in% c("2",
+                   "in the next 1-3 years") 
+    ~ "in the next 1-3 years",
+    mintwhen %in% c("3", 
+                   "in more than 3 years") 
+    ~ "in more than 3 years",
+    TRUE ~ NA
+  )) %>%
+  filter(!is.na(mintwhen))
+
+mh_long <- mh_long %>%
+  group_by(pidp) %>%
+  mutate(mentionsrank_mintwhen = dense_rank(waves_num)) %>%
+  ungroup()
+
+# pivot to wide format
+mh_wide_mintwhen <- mh_long %>%
+  select(pidp, mintwhen, mentionsrank_mintwhen, waves_num, intdaty_dv) %>%
+  rename(w_mintwhen = waves_num,
+         y_mintwhen = intdaty_dv,
+         `_mintwhen` = mintwhen) %>%
+  pivot_wider(
+    id_cols = "pidp", 
+    names_from = "mentionsrank_mintwhen",
+    values_from = c("_mintwhen","w_mintwhen","y_mintwhen"),
+    names_glue = "mention{mentionsrank_mintwhen}{.value}"
+  )
+
+# merge
+mh <- mh %>%
+  left_join(mh_wide_mintwhen, by = "pidp")
+
+rm(mh_long, mh_wide_mintwhen)
+```
+
+## var: citizenship intentions (ADD)
+```{r}
+# citizenship intention: wave 6 and 9
+# Count number of valid answers per respondent
+mh <- mh %>%
+  mutate(across(matches("_intendukc$"), ~as.character(.)),
+         across(matches("_intendukc$"), ~validanswers_character(.), .names = "{col}_validanswers"))
+
+mh <- mh %>%
+  rowwise() %>%
+  mutate(intendukc_nb = sum(c(f_intendukc_validanswers,i_intendukc_validanswers))) %>%
+  ungroup()
+#freq(mh$intendukc_nb) # max 1 answer per respondent
+
+# recoding
+mh <- mh %>%
+  mutate(
+    intendukc = dplyr::case_when(
+      if_any(ends_with("_intendukc"), ~. %in% c("1", "yes"))  ~ "yes",
+      if_any(ends_with("_intendukc"), ~. %in% c("2", "no")) ~ "no",
+      TRUE ~ NA
+    ))
+
+freq(mh$intendukc)
+
+# add wave and date for when this info was provided
+mh <- mh %>%
+  mutate(
+    intendukc_w = case_when(
+    validanswers_character(f_intendukc)==1 ~ 6,
+    validanswers_character(i_intendukc)==1 ~ 9,
+    TRUE ~ NA_real_),
+    intendukc_y = case_when(
+    validanswers_character(f_intendukc)==1 ~ f_intdaty_dv,
+    validanswers_character(i_intendukc)==1 ~ i_intdaty_dv,
+    TRUE ~ NA_real_)
+  )
+```
+
+
+## var: indefinite leave to remain 
+```{r}
+mh %>%
+  select(matches('_indeflv')) %>%
+  purrr::map(freq)
+
+# Count number of valid answers per respondent
+mh <- mh %>%
+  mutate(across(matches("_indeflv$"), ~as.character(.)),
+         across(matches("_indeflv$"), ~validanswers_character(.), .names = "{col}_validanswers"))
+
+mh <- mh %>%
+  rowwise() %>%
+  mutate(indeflv_nb = sum(c(f_indeflv_validanswers,i_indeflv_validanswers))) %>%
+  ungroup()
+
+#freq(mh$indeflv_nb) # 1 respondent gave 2 responses
+# pivot to long format
+mh_long <- mh %>%
+  select(pidp, matches("_indeflv$"), matches("intdaty_dv")) %>%
+  mutate(across(matches("_indeflv$"), ~as.character(.x))) %>%
+  filter(if_any(matches("_indeflv$"), ~validanswers_character(.)==1)) %>%
+  distinct(.keep_all = TRUE) %>% 
+  pivot_longer(
+    cols = !c(pidp),
+    names_to = c("waves", ".value"),
+    names_pattern = "(^[a-z])_(.*)$"
+  ) %>%
+  mutate(waves_num = wave_to_number(waves)) 
+
+# harmonise coding
+mh_long <- mh_long %>%
+  mutate(indeflv = dplyr::case_when(
+      indeflv %in% c("1", "yes")  ~ "yes",
+      indeflv %in% c("2", "no") ~ "no",
+      TRUE ~ NA
+    )) %>%
+  filter(!is.na(indeflv))
+
+mh_long <- mh_long %>%
+  group_by(pidp) %>%
+  mutate(mentionsrank_indeflv = dense_rank(waves_num)) %>%
+  ungroup()
+
+# pivot to wide format
+mh_wide_indeflv <- mh_long %>%
+  select(pidp, indeflv, mentionsrank_indeflv, waves_num, intdaty_dv) %>%
+  rename(w_indeflv = waves_num,
+         y_indeflv = intdaty_dv,
+         `_indeflv` = indeflv) %>%
+  pivot_wider(
+    id_cols = "pidp", 
+    names_from = "mentionsrank_indeflv",
+    values_from = c("_indeflv","w_indeflv","y_indeflv"),
+    names_glue = "mention{mentionsrank_indeflv}{.value}"
+  )
+
+# merge
+mh <- mh %>%
+  left_join(mh_wide_indeflv, by = "pidp")
+
+rm(mh_long, mh_wide_indeflv)
+```
+
+## var: age 16+ at migration
+```{r}
+mh <- mh %>%
+  mutate(age2uk16 = case_when(
+    age2uk >= 16 ~ "yes",
+    age2uk < 16  ~ "no",
+    TRUE ~ NA
+  ))
+```
+
+
+# Final variables selection
+```{r}
+mh_final <- mh %>%
+  select(# base variables
+         pidp, 
+         yr2uk4,
+         age2uk,
+         # recoded variables
+         age2uk16,
+         j1ukjob,
+         j1cojob,
+         mindirect,
+         mreturned, 
+         mlived,
+         # mintent: intend to migrate (multiple dated data points)
+         mintent_nb,
+         mention1_mintent,
+         mention1w_mintent,       
+         mention1y_mintent,
+         mention2_mintent,  
+         mention2w_mintent,
+         mention2y_mintent,
+         # mintwhen: when intends to migrate (multiple dated data points)
+         mention1_mintwhen,
+         mention1w_mintwhen,
+         mention1y_mintwhen, 
+         mention2_mintwhen,
+         mention2w_mintwhen, 
+         mention2y_mintwhen,
+         # whether intends UK citizenship (single dated data point)
+         intendukc_nb,
+         intendukc,
+         intendukc_w,             
+         intendukc_y,
+         # whether has indefinite leave to remain (multiple dated data points)
+         indeflv_nb,
+         mention1_indeflv,
+         mention1w_indeflv,
+         mention1y_indeflv,
+         mention2_indeflv,
+         mention2w_indeflv,
+         mention2y_indeflv)
+```
+
+# Labelling
+```{r}
+mh_labels <- c(pidp = "Personal identifier",
+               mindirect = "direct/indirect migration to the uk",
+               mreturned = "ever returned to country of birth for 1+ year", 
+               mlived = "ever lived abroad for 1+ year since moving to uk",
+               yr2uk4 = "year of 1st migration to uk",
+               age2uk = "age at 1st migration to uk",
+               age2uk16 = "16+ when first migrated to uk",
+               j1ukjob = "1st job in uk",
+               j1cojob = "where was 1st job, if not in uk",
+               # mintent: current migration intentions (multiple dated data points)
+               mintent_nb = "how many data points on migration intention per respondent", # max n = 2
+               mention1_mintent = "current migration intentions: 1st data point",
+               mention1w_mintent = "current migration intentions: wave of 1st data point",       
+               mention1y_mintent = "current migration intentions: year of 1st data point",
+               mention2_mintent = "current migration intentions: 2nd data point",  
+               mention2w_mintent = "current migration intentions: wave of 2nd data point",
+               mention2y_mintent = "current migration intentions: year of 2nd data point",
+               # mintwhen: when intends to migrate (multiple dated data points) 
+               mention1_mintwhen = "when would migrate, if intending to migrate: 1st data point",
+               mention1w_mintwhen = "when would migrate, if intending to migrate: wave of 1st data point",
+               mention1y_mintwhen = "when would migrate, if intending to migrate: year of 1st data point", 
+               mention2_mintwhen = "when would migrate, if intending to migrate: 2nd data point",
+               mention2w_mintwhen = "when would migrate, if intending to migrate: wave of 2nd data point", 
+               mention2y_mintwhen = "when would migrate, if intending to migrate: year of 2nd data point", 
+               # whether intends UK citizenship (single dated data point)
+               intendukc_nb = "how many data points on uk citizenship intention per respondent", # max n = 1
+               intendukc = "currently intending to take on uk citizenship",
+               intendukc_w = "uk citizenship intention: wave of data point",             
+               intendukc_y = "uk citizenship intention: year of data point",
+               # whether has indefinite leave to remain (multiple dated data points)
+               indeflv_nb = "how many data points on indefinite leave to remain per respondent" , # max n = 2
+               mention1_indeflv = "whether currently holds indefinite leave to remain: 1st data point",
+               mention1w_indeflv = "whether currently holds indefinite leave to remain: wave of 1st data point" ,
+               mention1y_indeflv = "whether currently holds indefinite leave to remain: year of 1st data point",
+               mention2_indeflv = "whether currently holds indefinite leave to remain: 2nd data point",
+               mention2w_indeflv = "whether currently holds indefinite leave to remain: wave of 2nd data point",
+               mention2y_indeflv = "whether currently holds indefinite leave to remain: year of 2nd data point")
+
+
+# assign labels to data frame variables
+label(mh_final) <- as.list(mh_labels[match(names(mh_final), 
+                                           names(mh_labels))]) 
+
+```
+
+# Write to dta
+```{r writedta}
+# write to stata
+write_dta(mh_final, 
+          path = "migration_history.dta",
+          label = attr(data, "label"))
+```
+
+
+In total, there are 5065 migrants for whom we have no migration history information.
+
+At wave 6, 1381 migrants were not asked the migration history questions, because these respondents had not entered the survey through the EMB or the IEMB.
+
+9 migrant respondents who were present at all 3 waves (1,6 and 7) were excluded from all migration history questions anyways. In total, there are 948 foreign-born respondents who did not provide migration history information at wave 1 and wave 6 (either because they were ruled out or because they were either not participating or not full survey respondents) and yet were still excluded from the migration history questions at wave 7.
+
+

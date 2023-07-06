@@ -19,7 +19,8 @@ library(expss)
 library(tidyverse)
 library(readstata13)
 library(foreign)
-library(sjlabelled)
+library(haven)
+library(Hmisc)
 ```
 
 # Functions
@@ -140,6 +141,9 @@ rm(data_wave1, data_wave2, data_wave3, data_wave4, data_wave5, data_wave6,
 
 # data cleaning: all lowercase
 c <- c %>% mutate(across(c(where(is.character), where(is.factor)), tolower)) 
+
+library(foreign)
+haven::write_dta(c, "c_uklhs_allwaves.dta")
 ```
 
 
@@ -164,16 +168,19 @@ c %>% count(if_all(matches("citzn\\d{1}$"), is.na)) # count individuals who have
 
 ```{r}
 c <- c %>%
-  mutate_at(vars(matches('citzn\\d{1}')), 
-            ~dplyr::recode(., 
+  mutate(across(matches('citzn\\d{1}$'), 
+         ~dplyr::recode(.x, 
                            "mentioned" = 1,
-                           "not mentioned" = 0)) 
+                           "not mentioned" = 0))) 
 c <- c %>%
-  mutate_at(vars(matches('citzn\\d{1}')), 
-            .funs = list(dv = ~ifelse(. %in% c(1, 0), ., NA))) %>%
+  mutate(across(matches('citzn\\d{1}$'), 
+            ~ifelse(. %in% c(1, 0), ., NA), .names = "{col}_dv")) %>%
   mutate(citzn_allNA = ifelse(if_all(matches("citzn\\d{1}_dv$"), is.na), TRUE, FALSE))
-names(c)
+
+
 freq(c$citzn_allNA)
+freq(c$a_citzn1_dv)
+freq(c$a_citzn1)
 ```
 4644 individuals have only missing data for British citizenship (citzn1)
 14284 have at least one non-missing citzn1 observation; and 4449 migrants who have only NAs for all citizenship variables (citzn1, citzn2 and citzn3) across all waves.
@@ -198,12 +205,6 @@ between the moment they declared having it, and the last time they were intervie
 
 ```{r}
 c_long <- c %>%
-  select(pidp, citzn_year, ends_with("citzn1"), ends_with("citzn2"), ends_with("citzn3"), ends_with("intdaty_dv"))
-```
-
-```{r}
-# earliest wave that they say yes to uk citizenship
-c_long <- c %>%
   select(pidp, citzn_year, ends_with("citzn1_dv"), ends_with("citzn2_dv"), ends_with("citzn3_dv"), ends_with("intdaty_dv")) %>%
   pivot_longer(
     cols = !c(pidp, citzn_year),
@@ -211,14 +212,56 @@ c_long <- c %>%
     names_pattern = "(^[a-z])_(.*)$"
   ) %>%
   mutate(waves_num = wave_to_number(waves)) # done!
-
-freq(c_long$citzn1_dv)
 ```
 
 
 ```{r}
+# combine variables on citizenship into one categorical variable
 c_long <- c_long %>%
-  filter(!if_all(matches("citzn\\d{1}_dv"), is.na)) %>%
+  mutate(citzn_all_na = ifelse(if_all(matches("citzn\\d{1}_dv"), is.na), 1, 0),
+         citzn_some_na = ifelse(if_any(matches("citzn\\d{1}_dv"), is.na), 1, 0),
+         citzn_all = case_when(
+           citzn_all_na == 1 ~ "no citizenship data",
+           citzn1_dv == 1 & citzn2_dv == 0 & citzn3_dv == 0 ~ "uk citizen only",
+           citzn1_dv == 1 & citzn2_dv == 1 & citzn3_dv == 0 ~ "dual citizen (uk + cob)",
+           citzn1_dv == 1 & citzn2_dv == 0 & citzn3_dv == 1 ~ "dual citizen (uk + other)",
+           citzn1_dv == 1 & citzn2_dv == 1 & citzn3_dv == 1 ~ "triple citizen (uk + cob + other)",
+           citzn1_dv == 0 & citzn2_dv == 1 & citzn3_dv == 0 ~ "citizen cob only",
+           citzn1_dv == 0 & citzn2_dv == 1 & citzn3_dv == 1 ~ "dual citizen (cob + other)",
+           citzn1_dv == 0 & citzn2_dv == 0 & citzn3_dv == 1 ~ "citizen other only",
+           citzn1_dv == 0 & citzn2_dv == 0 & citzn3_dv == 0 ~ "no citizenship" # stateless - no occurrence in this dataset
+         ))
+
+freq(c_long1$citzn_all)
+table(c_long1$citzn_all_na, c_long1$citzn_some_na) # if there is any NA, they are all NAs.
+```
+
+
+```{r}
+# first wave they answer the question on citizenship (if any) and
+# last wave they answer the question on citizenship (if any)
+c_long <- c_long %>%
+  filter(!if_all(matches("citzn\\d{1}_dv"), is.na)) %>% # removing individual-wave entry with no info on citizenship
+  group_by(pidp) %>%
+  mutate(mention1w_citzn = myMin(waves_num[if_any(matches("citzn\\d{1}_dv$"), ~is.na(.)==F)]),
+         mention1y_citzn  = intdaty_dv[waves_num == mention1w_citzn],
+         mention1_citzn = citzn_all[waves_num == mention1w_citzn],
+         mentionlastw_citzn = myMax(waves_num[if_any(matches("citzn\\d{1}_dv$"), ~is.na(.)==F)]),
+         mentionlasty_citzn  = intdaty_dv[waves_num == mentionlastw_citzn],
+         mentionlast_citzn = citzn_all[waves_num == mentionlastw_citzn]) %>%
+  ungroup()
+
+freq(c_long1$mention1_citzn)
+freq(c_long1$mentionlast_citzn)
+```
+40% of migrant participants (7229), when asked the first time about their citizenship, said they only had British citizenship.
+38% (6828) only mentioned being citizens of their country of birth. A further 15% single-citizenship participants (when first asked) were citizen of another country (not their country of birth). 1046 participants (~6%) cumulated British citizenship with another citizenship (typically that of their country of birth)
+
+When last asked (note: many respondents were only asked once), 49% of migrant participants had only uk citizenship, and 7.5% cumulated British citizenship with another citizenship. 
+
+```{r}
+# imputation timing of uk citizenship acquisition
+c_long <- c_long %>%
   mutate(citzn4_dv = ifelse(citzn2_dv == 1 | citzn3_dv == 1, 1, 0), # any non-uk citizenship
          citzn5_dv = ifelse(citzn1_dv == 0 | (is.na(citzn1_dv) & citzn4_dv == 1), 1, 0)) %>% # no uk citizenship
   group_by(pidp) %>%
@@ -233,32 +276,30 @@ c_long <- c_long %>%
                                 intdaty_dv[waves_num == last_mention_notukcitzn_bfuk]) 
                               / 2),
          citzn_year_dv = ceiling(citzn_year_dv),
-         keep_wave1 = ifelse(waves_num == myMin(waves_num[!is.na(citzn_year_dv)]), TRUE, FALSE),
-         keep_wave2 = ifelse(is.na(keep_wave1) & waves_num == myMin(waves_num), TRUE, keep_wave1)) %>%
-  filter(keep_wave2 == TRUE) %>%
-  add_count() %>%
-  ungroup() %>%
-  select(c(pidp, 
-           citzn_year_dv, 
-           waves, 
-           keep_wave1,
-           n,
-           first_mention_ukcitzn, 
-           last_mention_ukcitzn, 
-           first_mention_ocitzn, 
-           last_mention_ocitzn)) 
+         # imputation flag
+         citzn_year_dv_flag = ifelse(is.na(citzn_year)==T & is.na(citzn_year_dv)==F, 
+                                     "imputation", "no imputation")) %>% 
+  ungroup() 
 
+c_long1 <- c_long %>%
+  select(-c(waves, 
+            waves_num, 
+            intdaty_dv, 
+            citzn_all_na, 
+            citzn_some_na, 
+            citzn_all, 
+            keep_wave1, 
+            keep_wave2, 
+            matches("citzn\\d{1}_dv$"))) %>%
+  distinct()
 
 # merge with wide data
 cl <- c %>%
-  left_join(c_long, by = "pidp")
+  left_join(c_long1, by = "pidp")
 
-# imputation flag
-cl <- cl %>%
-  mutate(citzn_year_dv_flag = ifelse(is.na(citzn_year)==T & is.na(citzn_year_dv)==F, "imputation", "no imputation"))
-
-#table(cl$citzn_year_dv_flag, cl$citzn_year_dv > 0)
+names(cl)
 ```
+
 In total, we have a year of citizenship acquisition for 2256 migrants in UKLHS, with 547 based on imputation.
 
 
@@ -306,28 +347,49 @@ table(is.na(cl$citzn_year_dv) == F, cl$got_uk_citzn)
 ```
 
 # Label and save data
-```{r}
-cl <- cl %>%
+```{r labels}
+# Label and save data
+c_final <- cl %>%
   select(pidp,
+         mention1w_citzn, 
+         mention1y_citzn,
+         mention1_citzn,
+         mentionlastw_citzn,
+         mentionlasty_citzn,
+         mentionlast_citzn,
          got_uk_citzn,
          citzn_year_dv,
          citzn_year_dv_flag,
          mig2_ukcitzn,
          agewhen_ukcitzn)
 
-# assign variable labels
-cl <- set_label(cl, label = c("Personal identifier",
-                              "Whether acquired British citizenship", 
-                              "Year of acquisition of British citizenship (with imputations)", 
-                              "Imputation flags for citzn_year_dv",
-                              "Time (in years) between year of first migration to the UK and year of acquisition of British citizenship",
-                              "Age when acquired British citizenship")) 
 
-# write to csv
-write.csv(cl, "citizenship_UKLHS.csv", row.names = FALSE)
+c_labels <- c(pidp = "Personal identifier",
+              mention1w_citzn = "First wave provided citizenship information",
+              mention1y_citzn = "Year first provided citizenship information",
+              mention1_citzn = "First citizenship information recorded",
+              mentionlastw_citzn = "Last wave provided citizenship information",
+              mentionlasty_citzn = "Year last provided citizenship information",
+              mentionlast_citzn = "Last citizenship information recorded",
+              got_uk_citzn = "Whether acquired British citizenship",
+              citzn_year_dv = "Year of acquisition of British citizenship (with imputations)",
+              citzn_year_dv_flag = "Imputation flags for citzn_year_dv",
+              mig2_ukcitzn = "Time (in years) between year of first migration to the UK and year of acquisition of British citizenship",
+              agewhen_ukcitzn = "Age when acquired British citizenship")
 
+
+# assign labels to data frame variables
+label(c_final) <- as.list(c_labels[match(names(c_final), 
+                                         names(c_labels))]) 
+
+```
+
+
+```{r save}
 # write to stata
-write.dta(cl, file = "citizenship_UKLHS.dta")
+write_dta(c_final, 
+          path = "citizenship.dta",
+          label = attr(data, "label"))
 ```
 
 

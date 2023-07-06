@@ -1,0 +1,63 @@
+---
+title: "Bind_all_finaldataset"
+author: "Marion Lieutaud"
+date: "6/12/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE, 
+                      tidy.opts=list(width.cutoff=80),tidy=TRUE)
+```
+
+# Packages
+```{r}
+# packages
+library(questionr)
+library(expss)
+library(tidyverse)
+library(haven)
+library(Hmisc)
+library(foreign)
+```
+
+# All new variables
+```{r}
+# migration history data
+migration_history <- read_dta("migration_history.dta")
+View(migration_history) 
+
+# citizenship data
+citizenship <- read_dta("citizenship.dta")
+View(citizenship) 
+
+# language and national identity data 
+lang_natid <- read_dta("lang_natID.dta")
+View(lang_natid)
+
+# reasons for migration and parents' work before migration
+parentswork_reasonsmig <- read_dta("parentswork_reasonsmig.dta")
+View(parentswork_reasonsmig)
+```
+# Merge all for final dataset: migration_life
+```{r}
+migration_life <- migration_history %>%
+  full_join(citizenship, by = "pidp") %>%
+  full_join(lang_natid, by = "pidp") %>%
+  full_join(parentswork_reasonsmig, by = "pidp")
+```
+
+# can merge with xwavedat data on migrants
+```{r}
+xw <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
+mig <- subset(xw, xw$bornuk_dv == "not born in uk") 
+rm(xw)
+
+migration_life_extended <- mig %>%
+  full_join(migration_life, by = "pidp")
+```
+
+
+

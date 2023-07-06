@@ -1,0 +1,99 @@
+---
+title: "Bonus_heatmap"
+author: "Marion Lieutaud"
+date: "7/3/2023"
+output: html_document
+---
+
+# Packages
+```{r}
+# for plots
+library(hrbrthemes)
+library(grid)
+library(ggnewscale)
+library(ggtext)
+library(shadowtext)
+library(patchwork)
+```
+
+
+# Data
+```{r}
+tab <- data.frame(variables = c("variable description", "a_wave1", "b_wave2", "c_wave3", "d_wave4", "e_wave5", "f_wave6", "g_wave7", "h_wave8", "i_wave9", "j_wave10", "k_wave11", "pooled data"),
+                  rank = seq(1:13),
+                  waves = c("Survey waves", paste("Wave", seq(1:11)), "pooled data"),
+                  pidp = c("migrants' personal identifier (total sample of migrants)", c3),
+                  mindirect = c("direct/indirect migration to the uk", 4213,0,0,0,0,2636,1733,0,0,0,0, 9867),
+                  mreturned = c("ever returned to country of birth for 1+ year", 4842,0,0,0,0,3044,1990,0,0,0,0, 9873),
+                  mlived = c("ever lived abroad for 1+ year since moving to uk", 4843,0,0,0,0,3044,1990,0,0,0,0, 9874),
+                  mintent = c("current migration intentions (answered at least once)", 0,0,0,0,0,2177,1169,0,1786,0,0, 4395), # need to rerun the variable extraction for this
+                  mintwhen = c("when expects to migrate (if intends to migrate)", 0,0,0,0,0,238,94,0,142,0,0, 450), # and this variable
+                  intendukc = c("intending uk citizenship", 0,0,0,0,0,1215,0,0,537,0,0,1752),
+                  indeflv = c("indefinite leave to remain in uk", 0,0,0,0,0,1387,0,0,560,0,0,1946),
+                  age2uk = c("age at 1st migration to uk",4624,0,0,0,0,2945,3829,0,2586,0,0, 10127),
+                  age2uk16 = c("16+ when first migrated to uk",4624,0,0,0,0,2961,3810,0,2571,0,0, 10127), # need to recalculate the pooled data to make the best of derived and actual answers
+                  j1ukjob = c("1st job in uk",0,0,0,0,0,1822,0,0,1580,0,0, 3402),
+                  j1cojob = c("where was 1st job, if not in uk",0,0,0,0,0,1125,0,0,856,0,0,1981))
+tab
+```
+
+```{r}
+# pivot longer with variable descriptions
+tab_long <- tab
+names(tab_long)[4:length(tab_long)] <- paste0(names(tab_long)[4:length(tab_long)],"-", tab_long[1,4:length(tab_long)])
+
+tab_long <- tab_long %>%
+  filter(!variables == "variable description") %>%
+  select(-variables)
+
+tab_long <- tab_long %>%
+  pivot_longer(cols = c(3:length(tab_long)),
+               names_to = c("variables", "variable description"),
+               names_sep = "-",
+               values_to = "sample") %>%
+  mutate(sample = as.numeric(sample),
+         waves = sortLvlsByVar.fnc(waves, rank),
+         variables = factor(variables, levels = unique(variables)),
+         `variable description` = factor(`variable description`, levels = unique(`variable description`)))
+
+#write.csv(tab_long, "tab_heatmap.csv")
+```
+
+
+```{r}
+#heatmap table
+tab_heatmap <- 
+  ggplot(data = arrange(tab_long, by=rank),
+         mapping = aes(x = waves, y = fct_rev(variables), fill = sample)) +
+  geom_raster()
+
+tab_heatmap <- tab_heatmap +
+  scale_y_discrete(name = "Variables") +
+  guides(y.sec = guide_axis_manual(breaks = seq(1:12), #library(ggh4x)
+                                   labels = levels(fct_rev(tab_long$`variable description`)))) +
+  scale_fill_gradient(name = "",
+                    low = "#FFFFFF",
+                    high = "#d1112e",
+                    guide = "none") +
+  geom_text(size=3, aes(label = round(sample))) +
+  labs(title = "Sample of migrants who were asked + answered questions on migration history and migration background",
+       subtitle = "By Understanding Society survey wave. Last column is the count for data pooled from all waves.",
+       x = "Survey waves",
+       y = "Variables",
+       caption = "Source: Understanding Society (ISER), waves 1-11 (2009-2020).
+       \nVariable names are displayed on the left of the plot and variable descriptions on the right.") +
+  theme(text = element_text(family = "Arial Narrow"),
+        plot.title = element_text(size = 11, face = "bold"),
+        plot.subtitle = element_text(size = 9, color = "darkgrey"),
+        axis.title = element_text(size = 8, face="bold"),
+        axis.text = element_text(size = 8),
+        axis.text.x = element_text(angle = 30, vjust=0.7, hjust = 0.7),
+        legend.position = "bottom",
+        plot.caption = element_text(size = 8, color = "darkgrey", face = "italic")) #+
+  #theme_ipsum(axis.title = element_text(size = 7, face="bold"),
+              #legend.position = "bottom")
+  
+
+ggsave(tab_heatmap, file = "tab_heatmap.jpg", width = 8, height = 5)
+tab_heatmap
+```

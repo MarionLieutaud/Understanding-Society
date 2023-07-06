@@ -1,0 +1,284 @@
+---
+title: "Country_birth_18-05-2023"
+author: "Marion Lieutaud"
+date: "2023-05-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE, 
+                      tidy.opts=list(width.cutoff=80),tidy=TRUE)
+```
+
+# Packages
+```{r}
+# packages
+library(questionr)
+library(expss)
+library(tidyverse)
+library(Hmisc)
+library(foreign)
+library(haven)
+```
+
+
+```{r, eval=FALSE}
+# for plots
+library(ggh4x) # hacks for ggplot2
+library(hrbrthemes)
+library(grid)
+library(ggnewscale)
+library(ggtext)
+library(shadowtext)
+library(patchwork)
+```
+
+# Functions
+## Functions: general
+```{r}
+# nifty functions to reorder factor levels (Jan Vanhove, https://janhove.github.io)
+source("https://raw.githubusercontent.com/janhove/janhove.github.io/master/RCode/sortLvls.R")
+
+`%!in%` <- Negate(`%in%`)
+
+NAtozero <- function(.x) {
+  ifelse(is.na(.x) == T, 0, .x)
+}
+
+myMin <- function(vec) {
+      ifelse(length(vec[!is.na(vec)]) == 0, NA_real_, min(vec, na.rm = TRUE))
+}
+myMax <- function(vec) {
+      ifelse(length(vec[!is.na(vec)]) == 0, NA_real_, max(vec, na.rm = TRUE))
+}
+
+
+# waves to number
+wave_to_number <- function(x) {
+  dplyr::recode(x, 
+                `a` = 1,
+                `b` = 2,
+                `c` = 3,
+                `d` = 4,
+                `e` = 5,
+                `f` = 6,
+                `g` = 7,
+                `h` = 8,
+                `i` = 9,
+                `j` = 10,
+                `k` = 11)
+}
+
+
+valid_answer_yesno <- function(x) {
+  x %in% c("yes", "no")
+}
+
+valid_answer_mentioned <- function(x) {
+  x %in% c("mentioned", "not mentioned")
+}
+```
+
+## Functions: variables selections
+
+Variables:
+
+*waves 1 and 6*
+- majcb (mother worked in country of birth)
+- pajcb (father worked in country of birth)
+
+*waves 6 and 7*
+- mreason (reason moved to UK)
+
+*xwavedat*
+- plbornc
+- plbornc_all [special licence]
+- macob_all (mother's country of birth) [special licence]
+- pacob_all (father's country of birth) [special licence]
+- mgmrob_all (maternal grandmother's country of birth) [special licence]
+- mgprob_all (maternal grandfather's country of birth) [special licence]
+- pgmrob_all (paternal grandmother's country of birth) [special licence]
+- pgprob_all (paternal grandfather's country of birth) [special licence]
+
+```{r, eval=FALSE}
+selectvars_cob <- function(x) {
+  select(x, c(
+    pidp,
+    ends_with("majcb"), # mother worked in country of birth
+    ends_with("pajcb"), # father worked in country of birth
+    matches("mreason"), # reasons for migration
+  ))
+}
+```
+
+# Data
+## Data merge
+```{r, eval=FALSE}
+# start from stable characteristics
+xw <- haven::read_dta("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
+
+# sample of foreign-born survey participants
+mig <- subset(xw, xw$bornuk_dv == "not born in uk") 
+rm(xw)
+```
+
+```{r, eval=FALSE}
+# we only need 3 waves so no need for a loop
+data_wave6 <- haven::read_dta(
+  "/Users/lieutaud/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/f_indresp.dta") %>%
+  selectvars_cob()
+
+data_wave7 <- haven::read_dta(
+  "/Users/lieutaud/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/g_indresp.dta") %>%
+  selectvars_cob()
+
+data_wave9 <- haven::read_dta(
+  "/Users/lieutaud/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/i_indresp.dta") %>%
+  selectvars_cob()
+```
+
+
+
+```{r crosswavemerge, eval=FALSE}
+cob_test <- NA
+cob_test <- mig %>%
+  left_join(data_wave6, by = "pidp") %>%
+  left_join(data_wave7, by = "pidp") %>%
+  left_join(data_wave9, by = "pidp") 
+
+cob_test <- cob_test %>%
+  mutate(across(c(where(is.character), where(is.factor)), tolower)) 
+
+rm(data_wave1, data_wave6, data_wave7, mig)
+
+#names(cob_test)
+haven::read_dta(cob_test, "cob_test.dta")
+```
+
+# data prepped
+```{r}
+c <- haven::read_dta("cob_test.dta")
+c <- c %>%
+  mutate(across(c(where(is.character), where(is.factor)), tolower))
+```
+
+
+```{r functionsextra}
+answer_yes <- function(x) {
+  as.character(x) %in% c("yes", "1")
+}
+
+answer_no <- function(x) {
+  as.character(x) %in% c("no", "2")
+}
+```
+
+## Parents' work in country of birth
+```{r parentwork}
+# did mother/father work in country of birth
+c <- c %>%
+  mutate(majcb = ifelse(if_any(matches('majcb'), answer_yes), "yes",
+                        ifelse(if_any(matches('majcb'), answer_no), "no", NA)),
+         pajcb = ifelse(if_any(matches('pajcb'), answer_yes), "yes",
+                        ifelse(if_any(matches('pajcb'), answer_no), "no", NA)))
+
+```
+
+
+## Reasons for migration
+```{r reasonsmig}
+# mentioned a reason
+c <- c %>% 
+  mutate(across(matches('reason\\d{1}'), as.character)) %>%
+  mutate(across(matches('reason\\d{1}'), ~dplyr::case_when(
+  .x %in% c("mentioned","yes", "yes mentioned") ~ "1",
+  .x %in% c("not mentioned", "no") ~ "0",
+  TRUE ~ .x))) 
+```
+
+
+```{r reasonsmig}
+c <- c %>%
+  mutate(mreason_any = case_when(
+           if_any(matches("reason\\d{1}"), ~.=="1") ~ 1,
+           TRUE ~ 0), # ever provided at least 1 reason
+         mreason1 = case_when(
+           if_any(matches("_mreason1"), ~.=="1") ~ 1,
+           if_any(matches("_mreason1"), ~.== "0") ~ 0, 
+           TRUE ~ NA_real_), # work
+         mreason2 = case_when(
+           if_any(matches("_mreason2"), ~.=="1") ~ 1,
+           if_any(matches("_mreason2"), ~.== "0") ~ 0, 
+           TRUE ~ NA_real_), # partner
+         mreason3 = case_when(
+           if_any(matches("_mreason3"), ~.=="1") ~ 1,
+           if_any(matches("_mreason3"), ~.== "0") ~ 0, 
+           TRUE ~ NA_real_), # joined family
+         mreason4 = case_when(
+           if_any(matches("_mreason4"), ~.=="1") ~ 1,
+           if_any(matches("_mreason4"), ~.== "0") ~ 0, 
+           TRUE ~ NA_real_), # moved with family
+         mreason5 = case_when(
+           if_any(matches("_mreason5"), ~.=="1") ~ 1,
+           if_any(matches("_mreason5"), ~.== "0") ~ 0, 
+           TRUE ~ NA_real_),# education
+         mreason6 = case_when(
+           if_any(matches("_mreason6"), ~.=="1") ~ 1,
+           if_any(matches("_mreason6"), ~.== "0") ~ 0, 
+           TRUE ~ NA_real_), # political
+         mreason7 = case_when(
+           if_any(matches("_mreason7"), ~.=="1") ~ 1,
+           if_any(matches("_mreason7"), ~.== "0") ~ 0, 
+           TRUE ~ NA_real_), # wish to live in UK
+         mreason97 = case_when(
+           if_any(matches("_mreason97"), ~.=="1") ~ 1,
+           if_any(matches("_mreason97"), ~.== "0") ~ 0, 
+           TRUE ~ NA_real_)) # other reason
+
+
+c <- c %>%
+  mutate(mreason1 = case_when(
+    if_any(matches("reason1"), ~.=="1") ~ 1,
+    if_any(matches("reason1"), ~.== "0") ~ 0, 
+    TRUE ~ NA_real_))
+```
+
+# Label and save data
+```{r}
+c_final <- c %>%
+  select(pidp,
+         majcb,
+         pajcb,
+         matches("^mreason"))
+
+
+c_labels <- c(pidp = "Personal identifier",
+              majcb = "Mother worked in country of birth before migration",
+              pajcb = "Father worked in country of birth before migration",
+              mreason_any = "Reason for migration: any",
+              mreason1 = "Reason for migration: work",
+              mreason2 = "Reason for migration: partner",
+              mreason3 = "Reason for migration: joining family",
+              mreason4 = "Reason for migration: moving with family",
+              mreason5 = "Reason for migration: education",
+              mreason6 = "Reason for migration: political",
+              mreason7 = "Reason for migration: other")
+
+
+# assign labels to data frame variables
+label(c_final) <- as.list(c_labels[match(names(c_final), 
+                                         names(c_labels))]) 
+
+```
+
+
+```{r}
+# write to stata
+write_dta(c_final, 
+          path = "parentswork_reasonsmig.dta",
+          label = attr(data, "label"))
+```
+
+

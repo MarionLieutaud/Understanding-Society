@@ -21,25 +21,22 @@ library(tidyverse)
 library(haven)
 library(Hmisc)
 library(foreign)
+library(kableExtra)
 ```
 
 # All new variables
 ```{r}
 # migration history data
-migration_history <- read_dta("migration_history.dta")
-View(migration_history) 
+migration_history <- read_dta("~/Dropbox (Personal)/UKLHS Fellowship/UKLHS Migrant Lives Event History/migration_history.dta")
 
 # citizenship data
-citizenship <- read_dta("citizenship.dta")
-View(citizenship) 
+citizenship <- read_dta("~/Dropbox (Personal)/UKLHS Fellowship/UKLHS Migrant Lives Event History/citizenship.dta")
 
 # language and national identity data 
-lang_natid <- read_dta("lang_natID.dta")
-View(lang_natid)
+lang_natid <- read_dta("~/Dropbox (Personal)/UKLHS Fellowship/UKLHS Migrant Lives Event History/lang_natID.dta")
 
 # reasons for migration and parents' work before migration
-parentswork_reasonsmig <- read_dta("parentswork_reasonsmig.dta")
-View(parentswork_reasonsmig)
+parentswork_reasonsmig <- read_dta("~/Dropbox (Personal)/UKLHS Fellowship/UKLHS Migrant Lives Event History/parentswork_reasonsmig.dta")
 ```
 # Merge all for final dataset: migration_life
 ```{r}
@@ -47,17 +44,16 @@ migration_life <- migration_history %>%
   full_join(citizenship, by = "pidp") %>%
   full_join(lang_natid, by = "pidp") %>%
   full_join(parentswork_reasonsmig, by = "pidp")
+
+View(migration_life)
 ```
 
-# can merge with xwavedat data on migrants
+# Write to dta
 ```{r}
-xw <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
-mig <- subset(xw, xw$bornuk_dv == "not born in uk") 
-rm(xw)
-
-migration_life_extended <- mig %>%
-  full_join(migration_life, by = "pidp")
+# write to stata
+write_dta(migration_life, 
+          path = "migration_life.dta",
+          label = attr(data, "label"))
 ```
-
 
 

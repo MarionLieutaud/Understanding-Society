@@ -1,7 +1,7 @@
 ---
 title: "Understanding Society: User Guide to Migration & Life dataset"
 author: "Marion Lieutaud"
-date: "4/1/2023"
+date: "7/07/2023"
 output: 
   bookdown::pdf_document2:
     toc: true
@@ -21,6 +21,9 @@ knitr::opts_chunk$set(echo = FALSE,
 
 ```{r setup, include=FALSE}
 library(knitr)
+library(haven)
+library(tidyverse)
+library(kableExtra)
 ```
 
 \newpage
@@ -43,50 +46,65 @@ In addition, because some of the time-invariant characteristics have been produc
 
 The wave selection is also not random, as there were different criteria to be asked those questions at different waves: at wave 1, only non-white individuals were asked the ‘extra five minutes’ questions related to migration and ethnicity. At wave 6, only respondents from the IEMB were asked these questions. And the remaining migrants who had not been asked either at wave 1 or at wave 6 were then asked at wave 7. This means that the information for white migrants, for instance, would have been much more affected by attrition and non-response bias, especially if they were not part of the IEMB. They would not have been asked these questions the year they entered the survey, but at a later wave, if and only if they had not left the survey in-between. Thus, while the answer to the question on e.g. direct migration would presumably be the same regardless of when (at which wave) participants were asked, the odds that they would have been asked and therefore able to provide that information would differ.
 
-  
-# Variables: time-invariant 
+# Variables
+The detailed construction of each variable is detailed in the respective RMarkdown documents, which are organised by topic. Underneath are listed all the original or pooled variable names and labels as well as the thematic organisation of variables and some important points of variable construction.
 
-```{r, fig.align='center', out.width="100%", include = TRUE, eval=FALSE}
-knitr::include_graphics('tab_heatmap.jpg')
+## All variables with labels
+
+```{r}
+migration_life <- read_dta("migration_life.dta")
 ```
 
-## Timing of migration
-This corresponds to the year of first migration to the UK: the variable name is \textit{yr2uk4} and is included in the xwavedat dataset.
+```{r}
+migration_life %>%  
+  map_dfc(attr, "label") %>% 
+  pivot_longer(cols = everything()) %>%
+  rename("Variable name" = "name",
+         "Variable label" = "value") %>%
+  kable(booktabs = TRUE, format = "latex", longtable = TRUE) %>%
+  kable_styling(font_size = 10, 
+                latex_options = c("striped", "scale_down", "repeat_header")) %>%
+  column_spec(1, bold = TRUE)
+```
+  
+## Variables: time-invariant 
 
-## Age at migration
-This is also an xwavedat variable: \textit{age2uk}. It includes a further variable on whether respondents migrated before the age of 16: \textit{age2uk16}.
 
-## Country of birth
-See infographic 
+### Timing of migration: this corresponds to the year of first migration to the UK: the variable name is \textit{yr2uk4} and is included in the xwavedat dataset.
 
-## Parents' and grandparents' country of birth
-Pooled across waves.
+### Age at migration: This is also an xwavedat variable: \textit{age2uk}. It includes a further variable on whether respondents migrated before the age of 16: \textit{age2uk16}.
 
-## Direct/indirect migration
+### Country of birth
+relevant variables (plbornc and plbornc_all for special licence users) are already part of Understanding Society time-invariant data (e.g. xwavedat datafile). The distribution of the Understanding Society migrant sample was visualised in the infographic. 
+
+### Parents' and grandparents' country of birth
+The data is under special licence and not included in the base version of the Migration & life dataset.
+
+### Direct/indirect migration
 Participants in the ‘extra 5 minutes’ were asked at wave 1, 6 or 7 whether they had migrated directly from their country of birth to the UK, or if they had first migrated elsewhere, before later moving to the UK. The data from the different waves has been pooled into the mindirect variable. 
 
-## Return migration and other migration
+### Return migration and other migration
 By the same selection process, some migrants were asked at wave 1, and others at wave 6 or 7, whether they had ever returned to their country of birth for a year or longer, and whether they had lived abroad (in another country that was not their country of birth) for a year or longer, since first moving to the UK. Since respondents were only asked these questions once (check), these have also been pooled and recoded into two time-invariant variables: mreturned and mlived.
 
-## Other countries lived in before the UK
+### Other countries lived in before the UK
 
-## Reasons for migration
+### Reasons for migration
 
-## Whether mother and father worked in the country of birth (child migrants)
+### Whether mother and father worked in the country of birth (child migrants)
 
-
-
-## Country of first job and first job in the UK
+### Country of first job and first job in the UK
 
 
-# Variables: Time-variant 
-## Migration intentions
-Mintent: whether intends to migrate
-Mintwhen: when might migrate if intending to
 
-## Citizenship intentions
+## Variables: time-variant 
 
-## Citizenship and British naturalisation
+
+
+### Migration intentions
+
+### Citizenship intentions
+
+### Citizenship and British naturalisation
 The questionnaires include three sets of variables related to citizenship.
 -	Question on whether respondents intend to apply for citizenship (if they are not British citizens), which was asked only at wave 6 and 9.
 -	Retrospective question on the timing of acquisition of British citizenship (if they were born abroad, had migrated age 16 or older, and were British citizen at the time of interview), which was asked only at wave 6 and 9. 
@@ -94,13 +112,17 @@ The questionnaires include three sets of variables related to citizenship.
  
 By tracking change in current citizenship, it was possible to impute a year of citizenship acquisition for 547 migrant respondents. But what kind of non-response weights ought to be recommended to attach to such a mixed variable (pooling retrospective question and multiple wave data)?
 
-## Immigration status: indefinite leave to remain
+### Immigration status: indefinite leave to remain
 Waves 6 and 9
 
-## National identity
+### National identity
 
-## English language skills
-(other heatmap table needed)
+### English language skills
+
+```{r, fig.align='center', out.width="100%", include = TRUE, fig.cap="Distribution of variables on migration history across the Understanding Society survey waves"}
+knitr::include_graphics('tab_heatmap.jpg')
+```
+
 
 \newpage
 # Linked resources

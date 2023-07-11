@@ -15,28 +15,24 @@ knitr::opts_chunk$set(echo = FALSE,
 # Packages
 ```{r}
 # packages
-library(questionr)
-library(expss)
 library(tidyverse)
 library(haven)
 library(Hmisc)
-library(foreign)
-library(kableExtra)
 ```
 
 # All new variables
 ```{r}
 # migration history data
-migration_history <- read_dta("~/Dropbox (Personal)/UKLHS Fellowship/UKLHS Migrant Lives Event History/migration_history.dta")
+migration_history <- read_dta("~/UKLHS Fellowship/UKLHS Migrant Lives Event History/migration_history.dta")
 
 # citizenship data
-citizenship <- read_dta("~/Dropbox (Personal)/UKLHS Fellowship/UKLHS Migrant Lives Event History/citizenship.dta")
+citizenship <- read_dta("~/UKLHS Fellowship/UKLHS Migrant Lives Event History/citizenship.dta")
 
 # language and national identity data 
-lang_natid <- read_dta("~/Dropbox (Personal)/UKLHS Fellowship/UKLHS Migrant Lives Event History/lang_natID.dta")
+lang_natid <- read_dta("~/UKLHS Fellowship/UKLHS Migrant Lives Event History/lang_natID.dta")
 
 # reasons for migration and parents' work before migration
-parentswork_reasonsmig <- read_dta("~/Dropbox (Personal)/UKLHS Fellowship/UKLHS Migrant Lives Event History/parentswork_reasonsmig.dta")
+parentswork_reasonsmig <- read_dta("~/UKLHS Fellowship/UKLHS Migrant Lives Event History/parentswork_reasonsmig.dta")
 ```
 # Merge all for final dataset: migration_life
 ```{r}

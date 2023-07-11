@@ -117,7 +117,7 @@ selectvars_cob <- function(x) {
 ## Data merge
 ```{r, eval=FALSE}
 # start from stable characteristics
-xw <- haven::read_dta("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
+xw <- haven::read_dta("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
 
 # sample of foreign-born survey participants
 mig <- subset(xw, xw$bornuk_dv == "not born in uk") 
@@ -127,15 +127,15 @@ rm(xw)
 ```{r, eval=FALSE}
 # we only need 3 waves so no need for a loop
 data_wave6 <- haven::read_dta(
-  "/Users/lieutaud/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/f_indresp.dta") %>%
+  "~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/f_indresp.dta") %>%
   selectvars_cob()
 
 data_wave7 <- haven::read_dta(
-  "/Users/lieutaud/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/g_indresp.dta") %>%
+  "~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/g_indresp.dta") %>%
   selectvars_cob()
 
 data_wave9 <- haven::read_dta(
-  "/Users/lieutaud/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/i_indresp.dta") %>%
+  "~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/i_indresp.dta") %>%
   selectvars_cob()
 ```
 

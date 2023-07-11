@@ -153,7 +153,7 @@ selectvars_migration_history<- function(x){
 # Data
 ```{r, eval=FALSE}
 # start from stable characteristics
-xw <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
+xw <- readstata13::read.dta13("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
 
 #identify sample of foreign-born survey participants
 freq(xw$ukborn) # 18017 foreign-born respondents over the whole survey
@@ -167,9 +167,9 @@ rm(xw)
 ```
 wave 6 and 7
 ```{r, eval = FALSE}
-wave6 <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/f_indresp.dta")
-wave7 <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/g_indresp.dta")
-wave9 <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/i_indresp.dta")
+wave6 <- readstata13::read.dta13("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/f_indresp.dta")
+wave7 <- readstata13::read.dta13("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/g_indresp.dta")
+wave9 <- readstata13::read.dta13("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/i_indresp.dta")
 
 migw6w7w9 <- mig %>%
   left_join(wave6, by = "pidp") %>%
@@ -186,13 +186,13 @@ When excluding respondents with missing values for year of migration to Britain 
 
 
 ```{r, eval=FALSE}
-data_files <- list.files("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls") # path to data folder
+data_files <- list.files("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls") # path to data folder
 indresp_files <- grep("indresp.dta", data_files, value=TRUE) # specific data files wanted
 
 # base migration history data
 for(i in 1:length(indresp_files)) {                              # Head of for-loop
   assign(paste0("data_wave", i),                        # Read and store data frames
-         readstata13::read.dta13(paste0("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/",
+         readstata13::read.dta13(paste0("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/",
                                 indresp_files[i])) %>%
            selectvars_migration_history())
 }

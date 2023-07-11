@@ -75,7 +75,7 @@ Since most of the migration history information we have comes from wave 1, this 
 
 ```{r importxwavedat}
 # start from stable characteristics
-xw <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
+xw <- readstata13::read.dta13("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
 mig <- subset(xw, xw$bornuk_dv == "not born in uk") 
 #mig <- subset(mig, mig$yr2uk4 > 0) # excluding missing values for year of migration to the UK
 rm(xw)
@@ -109,13 +109,13 @@ select_variables_citizenship_allwaves<- function(x){
 
 ```{r}
 # data files
-data_files <- list.files("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls") # specify path to data folder
+data_files <- list.files("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls") # specify path to data folder
 indresp_files <- grep("indresp.dta", data_files, value=TRUE) # identify all indresp data files wanted
 
 # import citizenship data
 for(i in 1:length(indresp_files)) {                              # Head of for-loop
   assign(paste0("data_wave", i),                                 # Read and store data frames
-         read.dta13(paste0("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/",
+         read.dta13(paste0("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/",
                            indresp_files[i])) %>%
                               select_variables_citizenship_allwaves())
 }

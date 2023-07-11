@@ -96,7 +96,7 @@ natid1 - national ID = English
 ## English language skills + national identity pooled data
 ```{r xwavedat}
 # start from stable characteristics
-xw <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
+xw <- readstata13::read.dta13("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
 
 #identify sample of foreign-born survey participants
 freq(xw$ukborn) # 18017 foreign-born respondents over the whole survey
@@ -109,13 +109,13 @@ rm(xw)
 ```
 
 ```{r crosswavemerge}
-data_files <- list.files("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls") # path to data folder
+data_files <- list.files("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls") # path to data folder
 indresp_files <- grep("indresp.dta", data_files, value=TRUE) # specific data files wanted
 
 # base migration history data
 for(i in 1:length(indresp_files)) {                              # Head of for-loop
   assign(paste0("data_wave", i),                        # Read and store data frames
-         read.dta13(paste0("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/",
+         read.dta13(paste0("~/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/",
                            indresp_files[i])) %>%
                               selectvars_langID())
 }

@@ -48,18 +48,18 @@ Then import your base dataset
 ```{r importxwavedat}
 # start by importing from time-invariant dataset (or any base dataset you want to start from)
 # Can be xwavedat, or it can be the Migration & Life dataset. 
-xw <- readstata13::read.dta13("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
+xw <- readstata13::read.dta13("~/UKDA-6614-stata/stata/stata13_se/ukhls/xwavedat.dta")
 ```
 
 Then run a loop that will import all the wave-specific datafiles you are interested in, but will only import the variables you selected earlier.
 ```{r}
-data_files <- list.files("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls") # specify path to data folder
+data_files <- list.files("~/UKDA-6614-stata/stata/stata13_se/ukhls") # specify path to data folder
 indresp_files <- grep("indresp.dta", data_files, value=TRUE) # identify all indresp data files wanted
 
 # import specific variables for all datafiles
 for(i in 1:length(indresp_files)) {                              # Head of for-loop
   assign(paste0("data_wave", i),                                 # Read and store data frames
-         read.dta13(paste0("~/Dropbox (Personal)/Surveydata/UKLHS/UKDA-6614-stata/stata/stata13_se/ukhls/",
+         read.dta13(paste0("~/UKDA-6614-stata/stata/stata13_se/ukhls/",
                            indresp_files[i])) %>%
                               select_variables_citizenship_allwaves())
 }
